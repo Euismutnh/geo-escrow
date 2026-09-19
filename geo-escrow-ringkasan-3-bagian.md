@@ -101,7 +101,7 @@ Batas ambil       [2026-09-07]        ← 🆕 WAJIB
 | API | Blockchain |
 |---|---|
 | `GET /api/jobs/:id?include=runs,activity` 🆕 | `submitDeliverable(jobId, deliverableHash)` — tombol "Kirim hasil" |
-| `POST /api/jobs/:id/deliverable` 🆕 **(SEBELUM tx, bukan sesudah)** | `arbiterDecide(jobId, bool)` — panel juri, **hanya kalau wallet aktif == `arbiter_addr`** 🆕 |
+| `POST /api/jobs/:id/deliverable` 🆕 **(SEBELUM tx, bukan sesudah)** | `arbiterDecide(jobId, bool)` — panel juri, **hanya kalau wallet aktif == `arbiter` dari `GET /api/chain-info`** 🆕 |
 | `POST /api/jobs/:id/verify` (tombol "Verifikasi sekarang") | `reclaimExpired(jobId)` — kalau status Open & lewat deadline |
 | `GET /api/jobs/:id/verdict` 🆕 — panel audit hasil | `escalateStuckJob(jobId)` — kalau macet lewat timeout |
 | `POST /api/sync/:id` 🆕 (setelah tiap receipt tx) | |

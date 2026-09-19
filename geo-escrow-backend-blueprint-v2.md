@@ -46,10 +46,10 @@
        │ (tanda tangan tx)           ▼                  ▼
        │                    ┌────────────────┐  ┌──────────────────┐
        │                    │ Supabase (PG)  │  │ AI provider      │
-       │  Realtime (anon)   │ jobs           │  │ Wallet Oracle    │
-       └───────────────────►│ oracle_runs    │  │ RPC BNB Chain    │
-                            │ activity       │  └──────────────────┘
-                            │ indexer_state  │
+       │                    │ jobs           │  │ Wallet Oracle    │
+       │ (FE TIDAK menyentuh│ oracle_runs    │  │ RPC BNB Chain    │
+       │  Supabase langsung)│ activity       │  └──────────────────┘
+       └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│ indexer_state  │
                             └────────────────┘
                                      ▲
                                      │ event on-chain
@@ -237,7 +237,6 @@ create table jobs (
   -- ---- pihak ----
   client_addr              text not null,
   freelancer_addr          text,
-  arbiter_addr             text,
 
   -- ---- isi kontrak (off-chain, ditulis route POST) ----
   brand                    text not null,
@@ -332,7 +331,8 @@ create table activity (
   log_index     int    not null,
   block_number  bigint not null,
   type          text   not null check (type in (
-                  'deposit','bond_lock','structural_release','vrf_pick',
+                  'deposit','bond_lock','structural_release','structural_rejected',
+                  'dispute_raised','vrf_pick',
                   'final_release','final_refund','jury_release','jury_refund',
                   'bond_return','bond_slash','reclaim')),
   amount_wei    wei,
@@ -661,6 +661,7 @@ Semua respons memakai amplop yang sama.
 | GET | `/api/oracle-log` | `jobId`, `phase`, `limit` | `{ runs }` | **Log Oracle (global)** |
 | GET | `/api/activity` | `jobId`, `limit` | `{ activity }` | Aktivitas |
 | GET | `/api/stats` | `wallet` | `{ asClient, asFreelancer, needJury, done }` | Ringkasan |
+| GET | `/api/chain-info` | — | `{ oracle, arbiter, owner, bondBps, … }` | Gerbang panel juri |
 
 > Dua yang tidak ada di dokumen lama: `/api/oracle-log` global (halaman Log Oracle di prototipe menampilkan **semua** job, bukan satu) dan `?include=` (radar di halaman detail butuh `runs`; tanpa ini FE harus dua kali request).
 
@@ -754,8 +755,8 @@ ANTHROPIC_API_KEY=
 
 # --- Blockchain (Fase 9) ---
 CHAIN_ENABLED=false
-RPC_URL=https://data-seed-prebsc-1-s1.bnbchain.org:8545
-GEO_ESCROW_ADDRESS=
+RPC_URL=https://bsc-testnet-rpc.publicnode.com
+GEO_ESCROW_ADDRESS=0x41462F3092Ca66b7B3d9c8b20337793e2756cC46
 ORACLE_PRIVATE_KEY=
 
 # --- Operasional ---
@@ -854,7 +855,7 @@ export function handler<A extends unknown[]>(
 
 > Supabase mengganti istilah key-nya: **Publishable key** = `anon` lama, **Secret keys** = `service_role` lama. Dua-duanya berfungsi; yang kita butuh adalah yang **secret**.
 
-> **`service_role` vs `anon`:** `anon` dibatasi RLS dan aman terekspos di browser — itulah yang dipakai untuk Realtime. `service_role` melewati RLS sepenuhnya (admin penuh) dan **hanya boleh di server**. Karena itu ia tidak berawalan `NEXT_PUBLIC_`. Kalau `service_role` bocor ke browser, siapa pun bisa menghapus seluruh database kalian.
+> **`service_role` vs `anon`:** `anon` dibatasi RLS dan aman terekspos di browser — tapi **kita tidak memakainya sama sekali** (lihat §3.3: FE mengakses data lewat endpoint API kita, bukan langsung ke Supabase). `service_role` melewati RLS sepenuhnya (admin penuh) dan **hanya boleh di server**. Karena itu ia tidak berawalan `NEXT_PUBLIC_`. Kalau `service_role` bocor ke browser, siapa pun bisa menghapus seluruh database kalian.
 
 ### `lib/db.ts`
 
@@ -927,7 +928,8 @@ export interface Job {
   job_id: number;
   client_addr: string;
   freelancer_addr: string | null;
-  arbiter_addr: string | null;
+  // arbiter_addr DIHAPUS (migrasi 01) -- arbiter adalah nilai
+  // tingkat-kontrak, bukan properti per-job. Lihat GET /api/chain-info.
 
   brand: string;
   brief: string | null;
@@ -1746,9 +1748,11 @@ Job dibuat dengan `job_state: 'queued_baseline'`, lalu `after()` yang memulainya
 
 ### 6.2 `lib/chain-server.ts` — versi sementara
 
-Fase 6 membutuhkan `readJobFromChain()`, yang aslinya milik Fase 9. Dibuat sekarang dengan jalur `CHAIN_ENABLED=false` lengkap (mengembalikan `null` → verifikasi dilewati) dan jalur on-chain melempar error yang menyebut "butuh ABI + alamat kontrak (Fase 9)".
+Fase 6 membutuhkan `readJobFromChain()`, yang aslinya milik Fase 9. Dibuat di sini dengan jalur `CHAIN_ENABLED=false` lengkap (mengembalikan `null` → verifikasi dilewati) dan jalur on-chain melempar error yang menyebut "butuh ABI + alamat kontrak (Fase 9)".
 
 > **`null` berarti "verifikasi dilewati", BUKAN "job tidak ada".** Pemanggil wajib memeriksa `env.chainEnabled` lebih dulu, jangan menyimpulkan dari `null` saja.
+
+> **Sudah digantikan.** Pelemparan sementara itu tidak ada lagi — Fase 9 menggantinya dengan panggilan viem sungguhan, dan di sana `null` mendapat arti KEDUA ("job memang belum ada di kontrak"). Bagian ini dipertahankan supaya urutan pengerjaannya tetap terbaca; yang berlaku sekarang ada di §9.4.
 
 ### 6.3 Verifikasi
 
@@ -1852,6 +1856,23 @@ Route sudah menolak konten buruk, tapi `confirmStructural` memeriksanya lagi. Al
 ### 7.3 Yang TIDAK ada di sini
 
 `Math.round(Number(budget_wei) * 0.2)`. Roadmap v1 menghitung pencairan struktural di backend lalu menuliskannya ke database. Itu salah dua kali: presisi hilang lewat `Number()`, dan angka di database bisa berbeda dari yang benar-benar dipindahkan kontrak. **Sumber kebenaran satu-satunya adalah event on-chain**, dan indexer yang menuliskannya.
+
+#### Structural gagal harus SAMPAI ke kontrak (ditambahkan di Fase 9)
+
+Versi Fase 7 hanya menandai `job_state='error'` saat structural gagal, dan berhenti di situ. Kontraknya tidak pernah diberi tahu.
+
+Akibatnya baru terlihat setelah jalur tulis hidup: job tertinggal di status `Submitted` **selamanya**. `submitDeliverable` menolak status itu, jadi freelancer tidak bisa mengirim perbaikan — dan dana terkunci sampai ada yang memanggil `escalateStuckJob()` setelah 7 hari. Kegagalan yang seharusnya sepele ("kontennya kurang 5 karakter") berubah jadi sengketa.
+
+```ts
+const { hash: txHash } = await rejectStructuralOnChain(BigInt(jobId), alasan);
+await releaseLock(jobId, 'idle', alasan);
+return { ok: false, skipped: `structural gagal: ${structural.reason}`, rejectedOnChain: txHash };
+```
+
+Dua hal yang gampang salah di sini:
+
+- **`'idle'`, bukan `'error'`.** Penolakan structural adalah hasil yang SAH. Kalau ditandai `error`, `reclaimStaleLocks()` dan tombol coba-lagi di UI akan memperlakukannya sebagai sesuatu yang perlu diulang — padahal yang perlu terjadi adalah freelancer mengirim konten baru. `last_error` tetap diisi supaya alasannya terbaca.
+- **Cabang "hash tidak cocok" TIDAK ikut menolak on-chain.** Itu bukan konten yang jelek, melainkan tanda isi di database berbeda dari yang ditandatangani — kemungkinan data kita yang bermasalah. Cabang itu tetap `'error'` dan butuh perhatian manusia.
 
 ### 7.4 Verifikasi
 
@@ -1987,128 +2008,241 @@ Tanpa ini, verdict hasil pengembangan bisa disangka hasil sungguhan: seed-nya de
 
 ## FASE 9 — Chain: Baca (≈2 jam)
 
-> Mulai dari sini butuh **alamat kontrak + file ABI** dari tim blockchain.
+### 9.1 Fakta deployment — sudah terverifikasi langsung dari chain
 
-### `lib/abi.ts`
+| | |
+|---|---|
+| Alamat kontrak | `0x41462F3092Ca66b7B3d9c8b20337793e2756cC46` |
+| Jaringan | BSC Testnet, chain ID **97** |
+| Blok deploy | **130.726.113** ← dipakai `indexer_state`, lihat Fase 10 |
+| RPC | `https://bsc-testnet-rpc.publicnode.com` (cadangan: `bsc-testnet.drpc.org`) |
+| Oracle | `0xa3291638aeE37B076E7CA389C3fd28d5B73a4791` |
+| Arbiter | `0xd1ff61def4D7c6dB938A4501f460b5176fcbCd78` |
+| Owner | `0x8766d055bB79B511FCC34Bd1573ce612dFa4057D` |
+| `BOND_BPS` / `STRUCTURAL_BPS` | 500 (5%) / 2000 (20%) |
+| `verifyTimeout` | 604.800 detik (7 hari) |
+
+> **RPC lama sudah mati.** `data-seed-prebsc-1-s1.bnbchain.org` yang tertulis di rancangan awal tidak lagi merespons. Sudah diganti di `.env.local`.
+
+### 9.2 `lib/abi.ts` — SELESAI, jangan diketik ulang
+
+ABI disalin utuh dari `out/GeoEscrow.sol/GeoEscrow.json` (field `"abi"`). **Jangan pernah mengetiknya manual atau mengedit sebagian** — nama argumen event di dalamnya adalah kontrak antara indexer dan kontrak, dan satu huruf meleset membuat indexer gagal **diam-diam** (tidak ada error, datanya cuma tidak pernah masuk).
+
+Diverifikasi terhadap kontrak yang hidup lewat `npx tsx scripts/dev-chain-check.ts` — 11 pemeriksaan, semuanya lolos. Yang paling meyakinkan adalah `getJob()`: kalau bentuk tuple-nya meleset satu field saja, viem gagal men-decode.
+
+### 9.3 Tiga hal tentang kontrak yang mudah salah
+
+#### `jobId` PERTAMA ADALAH 0, bukan 1
+
+Dibuktikan dengan mensimulasikan `createJob` lewat `eth_call` (tanpa mengirim transaksi): nilai kembaliannya `0`. Kontrak memakai `jobCount++`, bukan `++jobCount`.
+
+Dua konsekuensi yang gampang terlewat:
 
 ```ts
-export const geoEscrowAbi = [
-  /* tempel ABI dari tim blockchain di sini */
-] as const;
-// ^ `as const` penting: viem memakainya untuk menurunkan tipe argumen &
-//   hasil tiap fungsi. Tanpa itu semuanya jadi `any`.
+// BAHAYA: jobId 0 itu falsy
+const jobId = Number(log.args?.jobId ?? 0);   // ← "tidak ada" jadi sama dengan job 0
+if (!jobId) return;                            // ← job 0 yang sah ikut terbuang
 ```
 
-### `lib/chain-server.ts` — MELENGKAPI yang sudah ada
+Dan: **data seed kita memakai job_id 1–6, yang akan BENTROK** dengan job on-chain sungguhan (0, 1, 2, …). Sebelum `CHAIN_ENABLED=true` dipakai serius, hapus data seed atau pindahkan ke rentang tinggi.
 
-> File ini **sudah dibuat di Fase 6** dengan jalur `CHAIN_ENABLED=false` lengkap; tiap fungsi on-chain-nya masih melempar error "butuh ABI + alamat kontrak". Yang dikerjakan di sini adalah mengganti pelemparan itu dengan panggilan viem yang sesungguhnya — bukan membuat file dari nol.
+#### `getJob()` ≠ `jobs()`
 
+Keduanya ada di ABI, tapi bentuknya berbeda:
+
+| | `getJob(id)` | `jobs(id)` |
+|---|---|---|
+| Nama field bond | `bond` | `bondAmount` |
+| `submittedAt` | tidak ada | ada |
+| Urutan field | dikunci sesuai spek §3.2 | urutan storage |
+
+**Selalu pakai `getJob()`.** Itu yang bentuknya disepakati; `jobs()` cuma getter bawaan Solidity untuk mapping publik dan bisa berubah kalau struct-nya di-refactor.
+
+#### `status` adalah `uint8`, urutannya mengikat
 
 ```ts
-import {
-  createPublicClient, createWalletClient, http, keccak256, toHex, type Address,
-} from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { bscTestnet } from 'viem/chains';
-import { env } from './env';
-import { geoEscrowAbi } from './abi';
-import type { Decision } from './scoring';
+export const STATUS_BY_INDEX = [
+  'Open', 'Accepted', 'Submitted', 'Verifying',
+  'Disputed', 'ReleasedFull', 'Refunded',
+] as const;
+```
 
-let _pub: ReturnType<typeof createPublicClient> | null = null;
-let _wal: ReturnType<typeof createWalletClient> | null = null;
+Sudah dicocokkan dengan bytecode: settle-release menulis 5 (`ReleasedFull`), settle-refund menulis 6 (`Refunded`), `escalateStuckJob` menulis 4 (`Disputed`), `reclaimExpired` menulis 6. Cocok dengan urutan di atas.
 
-export function publicClient() {
-  _pub ??= createPublicClient({ chain: bscTestnet, transport: http(env.rpcUrl) });
-  return _pub;
+### 9.4 `lib/chain-server.ts` — melengkapi yang sudah ada
+
+File ini dibuat di Fase 6 dengan jalur `CHAIN_ENABLED=false` lengkap. Yang dikerjakan di sini adalah mengganti pelemparan `notYet()` dengan panggilan viem sungguhan.
+
+**Sepuluh penyesuaian dari rancangan awal.** Empat yang pertama sudah terlihat saat membaca ABI; enam sisanya baru muncul saat kodenya benar-benar dijalankan terhadap kontrak hidup.
+
+| # | Masalah | Perbaikan |
+|---|---|---|
+| 1 | **Error RPC disamakan dengan "job tidak ada"** | dibedakan — RPC gagal harus melempar |
+| 2 | `OnChainJob` kurang 3 field | `verificationSeed`, `structuralReleased`, `acceptDeadline` |
+| 3 | Tidak ada `rejectStructuralOnChain` | ditambahkan (fungsinya sekarang ada di kontrak) |
+| 4 | Tidak ada pembaca `requiredBond` | ditambahkan — FE butuh untuk `acceptJob` |
+| 5 | **Seed nol dipakai apa adanya** | ditolak — subset jadi bisa ditebak |
+| 6 | **`requiredBond` job tak-ada mengembalikan 0** | dijaga `jobCount` — 0 membuat `acceptJob` pasti gagal |
+| 7 | Kunci oracle salah = revert tanpa petunjuk | alamatnya dicocokkan dengan `oracle()` sekali per proses |
+| 8 | **Dua settlement bersamaan merebut nonce** | semua tulis diantrekan satu-per-satu |
+| 9 | Revert setelah masuk blok dilaporkan sukses | `simulateContract` dulu, lalu `receipt.status` diperiksa |
+| 10 | **Settle ulang bisa memindahkan dana dua kali** | status kontrak diperiksa dulu — `alreadyDone` |
+
+#### 1. Jangan samakan RPC mati dengan job tidak ada
+
+```ts
+// SEBELUM — semua error ditelan jadi null
+try {
+  return await readContract(...);
+} catch {
+  return null;    // RPC putus? Kontrak salah alamat? Sama-sama null.
 }
+```
 
-export function walletClient() {
-  _wal ??= createWalletClient({
-    account: privateKeyToAccount(env.oraclePrivateKey as `0x${string}`),
-    chain: bscTestnet,
-    transport: http(env.rpcUrl),
+`null` dari `readJobFromChain()` dibaca `POST /api/jobs` sebagai **"Job belum ada di blockchain — kirim transaksi dulu"**. Jadi kalau RPC sedang bermasalah, setiap pembuatan job ditolak dengan pesan yang **menyesatkan** — user akan mengira transaksinya gagal dan mengirim ulang, membayar gas dua kali.
+
+```ts
+export async function readJobFromChain(jobId: bigint): Promise<OnChainJob | null> {
+  if (!env.chainEnabled) return null;   // verifikasi sengaja dilewati
+
+  const total = await publicClient().readContract({
+    address: escrowAddress(), abi: geoEscrowAbi, functionName: 'jobCount',
+  }) as bigint;
+
+  // Di luar jangkauan = benar-benar belum ada. Ini satu-satunya alasan
+  // sah mengembalikan null saat chain menyala. jobId pertama 0, jadi
+  // jangkauannya [0, total) -- perbandingannya >= , bukan > .
+  if (jobId < 0n || jobId >= total) return null;
+
+  // Error apa pun setelah ini adalah masalah infrastruktur -- biarkan
+  // melempar supaya muncul sebagai 502, bukan menyamar jadi 400.
+  const r = await publicClient().readContract({
+    address: escrowAddress(), abi: geoEscrowAbi,
+    functionName: 'getJob', args: [jobId],
   });
-  return _wal;
+  return r as unknown as OnChainJob;
 }
+```
 
-export function escrowAddress(): Address {
-  return env.escrowAddress as Address;
-}
+> `null` punya DUA arti yang berbeda dan pemanggil wajib membedakannya lewat `env.chainEnabled`: saat chain mati artinya "verifikasi dilewati"; saat chain menyala artinya "job memang belum ada".
 
+#### 2. `OnChainJob` harus 11 field, sama persis dengan `getJob()`
+
+```ts
 export interface OnChainJob {
   client: string;
   freelancer: string;
   queryPoolHash: string;
   deliverableHash: string;
   verdictHash: string;
+  verificationSeed: string;   // <- dipakai Fase 8
   budget: bigint;
   bond: bigint;
-  status: number;
-}
-
-export async function readJobFromChain(jobId: bigint): Promise<OnChainJob | null> {
-  if (!env.chainEnabled) return null;
-  try {
-    const r = await publicClient().readContract({
-      address: escrowAddress(), abi: geoEscrowAbi,
-      functionName: 'getJob', args: [jobId],
-    });
-    return r as unknown as OnChainJob;
-  } catch {
-    return null;
-  }
-}
-
-/** Seed VRF dari chain. Fallback deterministik saat CHAIN_ENABLED=false
- *  supaya Fase 8 bisa dites & didemokan tanpa kontrak. */
-export async function getVerificationSeed(jobId: bigint): Promise<`0x${string}`> {
-  if (env.chainEnabled) {
-    const seed = await publicClient().readContract({
-      address: escrowAddress(), abi: geoEscrowAbi,
-      functionName: 'verificationSeed', args: [jobId],
-    });
-    return seed as `0x${string}`;
-  }
-  return keccak256(toHex(`dev-seed-${jobId}`));
-}
-
-export async function confirmStructuralOnChain(jobId: bigint) {
-  if (!env.chainEnabled) return { hash: '0xdev' as const };
-  const hash = await walletClient().writeContract({
-    address: escrowAddress(), abi: geoEscrowAbi,
-    functionName: 'confirmStructural', args: [jobId],
-  });
-  await publicClient().waitForTransactionReceipt({ hash });
-  return { hash };
-}
-
-export async function settleOnChain(
-  jobId: bigint, decision: Decision, vHash: `0x${string}`
-) {
-  if (!env.chainEnabled) return { hash: '0xdev' as const };
-  const fn = decision === 'release' ? 'settleRelease'
-           : decision === 'refund'  ? 'settleRefund'
-           : 'raiseDispute';
-  const hash = await walletClient().writeContract({
-    address: escrowAddress(), abi: geoEscrowAbi,
-    functionName: fn, args: [jobId, vHash],
-  });
-  // Tunggu receipt: kalau tx gagal (revert), kita harus tahu SEBELUM
-  // menulis hasil ke DB, bukan sesudah.
-  await publicClient().waitForTransactionReceipt({ hash });
-  return { hash };
+  structuralReleased: bigint; // <- dipakai indexer
+  status: number;             // uint8, lihat STATUS_BY_INDEX
+  acceptDeadline: bigint;     // unix DETIK (uint64 di createJob)
 }
 ```
 
-**Selesai kalau:** dengan `CHAIN_ENABLED=true`, `readJobFromChain(1n)` mengembalikan data job yang benar dari testnet.
+`acceptDeadline` satuannya **unix detik**, bukan nomor blok — kontrak membandingkannya langsung dengan `block.timestamp`. Konversi ke kolom `timestamptz`: `new Date(Number(acceptDeadline) * 1000)`.
+
+#### 3–4. Dua fungsi baru
+
+```ts
+/** Structural gagal -> kembalikan job ke Accepted supaya bisa submit ulang. */
+export async function rejectStructuralOnChain(jobId: bigint, reason: string): Promise<TxResult>
+
+/** Berapa bond yang harus dikirim FE saat acceptJob. */
+export async function readRequiredBond(jobId: bigint): Promise<bigint>
+```
+
+`reason` masuk ke event `StructuralRejected` dan **terbaca publik selamanya**. Jangan pernah menaruh isi deliverable, alamat email, atau apa pun yang bersifat pribadi di sana. Kodenya memotongnya di 200 karakter.
+
+#### 5. Seed nol harus ditolak, bukan dipakai
+
+`verificationSeed(jobId)` baru terisi saat kontrak menjalankan `confirmStructural`. Sebelum itu nilainya `0x000…0`.
+
+Membiarkannya lewat tidak menyebabkan error apa pun — `deriveSubset()` menerima seed apa saja dan mengembalikan subset yang valid. Justru itu bahayanya: subsetnya jadi **sama untuk setiap job** dan bisa dihitung siapa pun jauh sebelum verifikasi. Freelancer tinggal mengoptimalkan kontennya untuk lima pertanyaan yang sudah ia tahu akan terpilih.
+
+```ts
+if (/^0x0*$/.test(seed)) {
+  throw new Error(`verificationSeed job ${jobId} masih nol — confirmStructural belum dijalankan`);
+}
+```
+
+#### 6. `requiredBond` mengembalikan 0, bukan revert
+
+Diuji langsung ke kontrak: `requiredBond(0)` untuk job yang belum ada **tidak revert** — Solidity membaca struct kosong dan mengembalikan `0`.
+
+Angka itu kalau diteruskan ke FE membuat tombol "Ambil kontrak" mengirim `acceptJob` dengan `value: 0`, yang pasti ditolak kontrak — dan freelancer membayar gas untuk transaksi yang tidak mungkin berhasil. Penjaganya ada di sisi kita, karena kontraknya tidak menjaga.
+
+#### 7. Kunci oracle yang salah harus ketahuan di baris pertama
+
+Kalau `ORACLE_PRIVATE_KEY` diisi kunci yang bukan milik wallet oracle, **setiap** transaksi revert dengan pesan mentah EVM — `execution reverted`, tanpa petunjuk ke mana pun. Penyebabnya cuma satu baris di `.env.local`, tapi menemukannya bisa makan berjam-jam.
+
+`assertOracleWallet()` membandingkan alamat turunan kunci dengan `oracle()` on-chain, sekali per proses, dan kalau meleset ia menyebut kedua alamat sekaligus saran perbaikannya (`setOracle(…)`). Bentuk kuncinya divalidasi lebih dulu — dan **pesan error-nya tidak pernah memuat isi kunci**.
+
+#### 8. Satu wallet, satu antrean
+
+Lock per-job di `jobs-repo` tidak menolong di sini: yang bentrok bukan job-nya, tapi **wallet-nya**. Dua job yang di-settle bersamaan mengambil nonce yang sama dari RPC, lalu salah satunya ditolak `nonce too low` — padahal keduanya sah.
+
+```ts
+let antrean: Promise<unknown> = Promise.resolve();
+
+function antre<T>(fn: () => Promise<T>): Promise<T> {
+  const hasil = antrean.then(fn, fn);
+  antrean = hasil.catch(() => undefined);   // rantai tidak boleh putus
+  return hasil;
+}
+```
+
+#### 9. Simulasi dulu, dan periksa receipt
+
+Dua hal yang sama-sama diam kalau dilewatkan:
+
+- **`simulateContract` sebelum menulis.** Fungsinya dijalankan di node tanpa mengirim apa pun, jadi revert ketahuan **sebelum** gas terbayar — dan pesannya menyebut alasan revert. Kalau simulasi gagal, kodenya membaca status on-chain dan memasukkannya ke pesan error, karena penyebabnya hampir selalu "status kontrak tidak seperti yang kita kira".
+- **`receipt.status`.** viem **tidak melempar** untuk transaksi yang masuk blok lalu revert. Tanpa baris pemeriksaan itu, settlement yang gagal akan dilaporkan sukses ke pemanggil — dan database mencatat dana sudah cair padahal tidak.
+
+#### 10. Idempotensi diputuskan oleh kontrak, bukan oleh catatan kita
+
+Skenarionya nyata: transaksi settle terkirim, receipt-nya tidak pernah sampai (timeout, RPC putus). Backend menandai job `error`. Percobaan berikutnya memanggil `settleOnChain` lagi — padahal dana **sudah** berpindah.
+
+Fase 8 sudah menutup separuh masalah ini dengan menyimpan verdict lebih dulu. Separuh sisanya ditutup di sini: sebelum mengirim apa pun, statusnya dibaca dari kontrak.
+
+```ts
+const SETTLE = {
+  release: { fn: 'settleRelease', tujuan: [5] },        // ReleasedFull
+  refund:  { fn: 'settleRefund',  tujuan: [6] },        // Refunded
+  dispute: { fn: 'raiseDispute',  tujuan: [4, 5, 6] },  // arbiter bisa sudah memutus
+} as const;
+
+if (await sudahLewat(jobId, tujuan)) return { hash: '0xsudah', alreadyDone: true };
+```
+
+Sentinel `'0xsudah'` sengaja dibedakan dari `'0xdev'`. Keduanya berarti "tidak ada transaksi", tapi sebabnya berbeda jauh: yang satu mode pengembangan, yang satu lagi **bukti bahwa uangnya sudah berpindah**. `alreadyDone` diteruskan ke `VerifyResult.alreadySettled` dan `ConfirmResult.alreadyDone`, supaya respons API tidak berbohong soal ada-tidaknya transaksi.
+
+### 9.5 Verifikasi
+
+```bash
+npx tsx scripts/dev-chain-check.ts   # ABI cocok dengan kontrak     (11 cek)
+npx tsx scripts/dev-chain-read.ts    # logika pembungkusnya benar   (17 cek)
+```
+
+Keduanya **tidak butuh private key** dan **tidak mengirim transaksi apa pun** — semuanya `eth_call`.
+
+`dev-chain-read.ts` menguji hal yang tidak bisa dijamin ABI: bahwa `null` berarti "job belum ada" dan bukan "RPC bermasalah", bahwa seed nol ditolak, bahwa `requiredBond` tidak diam-diam mengembalikan 0, dan bahwa kedua penjaga private key bekerja. Yang terakhir diuji dengan kunci acak sekali pakai (`generatePrivateKey()`) yang tidak pernah memegang dana dan tidak ditulis ke mana pun — keduanya gagal **sebelum** `writeContract`, jadi tidak ada transaksi yang lahir dari pengujian.
+
+**Selesai kalau:** keduanya menutup dengan `gagal: 0`.
+
+> `jobCount()` masih **0** — belum ada satu pun job di kontrak. Jalur tulis (`confirmStructural`, `rejectStructural`, `settleRelease`, `settleRefund`, `raiseDispute`) sudah ditulis lengkap tapi **belum pernah dijalankan sungguhan**: itu butuh `ORACLE_PRIVATE_KEY` dan minimal satu job hasil `createJob()` dari wallet client.
 
 ---
 
 ## FASE 10 — Indexer + Sync (≈3 jam)
 
-### Kenapa perlu
+### 10.1 Kenapa perlu
 
-Blockchain tidak bisa memanggil server kamu. Kalau ada yang menjalankan `acceptJob`, kontrak hanya memancarkan event ke dalam blok — tidak ada yang memberitahu backend. Jadi harus ada yang **rajin bertanya**: "sejak blok terakhir yang kucatat, ada event baru?"
+Blockchain tidak bisa memanggil server kamu. Kalau ada yang menjalankan `acceptJob`, kontrak hanya memancarkan event ke dalam blok — tidak ada yang mengetuk pintu backend. Jadi harus ada yang **rajin bertanya**: "sejak blok terakhir yang kucatat, ada event baru?"
 
 Dua jalur, sengaja:
 
@@ -2119,207 +2253,189 @@ Dua jalur, sengaja:
 
 **Demo panggung tidak boleh bergantung pada cron.** Jalur pertama yang membuat UI terasa hidup; jalur kedua hanya menangkap yang terlewat (user menutup tab, tx dari luar aplikasi).
 
-### `lib/indexer.ts`
+### 10.2 Delapan penyesuaian dari rancangan awal
 
-```ts
-import { db } from './db';
-import { publicClient, escrowAddress } from './chain-server';
-import { geoEscrowAbi } from './abi';
-import { env } from './env';
-import { confirmStructural } from './flows/structural';
+| # | Masalah | Sisi | Perbaikan |
+|---|---|---|---|
+| 1 | **`StructuralConfirmed` membaca `log.args.freelancer` yang TIDAK ADA** | fungsionalitas | event-nya `(jobId, amount, seed)` |
+| 2 | **`seed` dari event dibuang** | fungsionalitas | disimpan ke `verification_seed` |
+| 3 | **`StructuralRejected` tidak ditangani** | fungsionalitas | job dikembalikan ke `Accepted` |
+| 4 | **`BondSettled` tidak ditangani** | fungsionalitas | baris `bond_return` / `bond_slash` |
+| 5 | **Indexer mulai dari blok 0** | performa | disemai dari blok deploy |
+| 6 | `syncJob` menyaring di sisi klien | performa | pakai filter topic `jobId` |
+| 7 | `jobId ?? 0` — job 0 itu sah | fungsionalitas | sentinel `-1`, bukan `0` |
+| 8 | `applyLog(log: any)` | kualitas | tipe diturunkan dari ABI |
 
-/** Satu event → baris jobs + baris activity. Idempoten:
- *  unique(tx_hash, log_index) menolak duplikat di level database. */
-async function applyLog(log: any) {
-  const jobId = Number(log.args?.jobId ?? 0);
-  const base = {
-    job_id: jobId,
-    tx_hash: log.transactionHash,
-    log_index: Number(log.logIndex),
-    block_number: Number(log.blockNumber),
-  };
-  const act = async (type: string, extra: Record<string, unknown> = {}) => {
-    await db().from('activity').upsert(
-      { ...base, type, ...extra },
-      { onConflict: 'tx_hash,log_index', ignoreDuplicates: true }
-    );
-  };
-  const patch = async (fields: Record<string, unknown>) => {
-    await db().from('jobs').update(fields).eq('job_id', jobId);
-  };
+#### 1–2. `StructuralConfirmed` — dua kesalahan sekaligus
 
-  switch (log.eventName) {
-    case 'JobCreated':
-      await patch({ status: 'Open', budget_wei: String(log.args.budget) });
-      await act('deposit', {
-        amount_wei: String(log.args.budget),
-        from_addr: log.args.client, note: 'Kunci dana kontrak GEO',
-      });
-      break;
+Event sungguhannya (dari ABI):
 
-    case 'JobAccepted':
-      await patch({
-        status: 'Accepted',
-        freelancer_addr: String(log.args.freelancer).toLowerCase(),
-        bond_wei: String(log.args.bond),
-      });
-      await act('bond_lock', {
-        amount_wei: String(log.args.bond),
-        from_addr: log.args.freelancer, note: 'Kunci bond freelancer',
-      });
-      break;
-
-    case 'DeliverableSubmitted':
-      await patch({
-        status: 'Submitted',
-        deliverable_hash: log.args.deliverableHash,
-        deliverable_submitted_at: new Date().toISOString(),
-      });
-      // Konten mungkin sudah dikirim FE lebih dulu (lihat Fase 7).
-      // Kalau ya, structural check langsung jalan; kalau belum, dilewati
-      // dan dicoba lagi di poll berikutnya.
-      await confirmStructural(jobId).catch(() => {});
-      break;
-
-    case 'StructuralConfirmed':
-      await patch({
-        status: 'Verifying',
-        structural_released_wei: String(log.args.amount),
-      });
-      await act('structural_release', {
-        amount_wei: String(log.args.amount),
-        to_addr: log.args.freelancer, note: 'Structural check lolos',
-      });
-      break;
-
-    case 'Settled': {
-      const toFreelancer = Boolean(log.args.toFreelancer);
-      const byArbiter = Boolean(log.args.byArbiter);
-      await patch({
-        status: toFreelancer ? 'ReleasedFull' : 'Refunded',
-        settled_by: byArbiter ? 'arbiter' : 'oracle',
-      });
-      const t = byArbiter
-        ? (toFreelancer ? 'jury_release' : 'jury_refund')
-        : (toFreelancer ? 'final_release' : 'final_refund');
-      await act(t, {
-        amount_wei: String(log.args.amount),
-        to_addr: log.args.recipient,
-        note: toFreelancer ? 'Target tercapai — dana cair' : 'Target tidak tercapai — refund',
-      });
-      break;
-    }
-
-    case 'DisputeRaised':
-      await patch({ status: 'Disputed' });
-      await act('vrf_pick', { note: 'Skor di zona abu — dilempar ke juri' });
-      break;
-
-    case 'Reclaimed':
-      await patch({ status: 'Refunded', settled_by: 'oracle' });
-      await act('reclaim', {
-        amount_wei: String(log.args.amount),
-        to_addr: log.args.client, note: 'Deadline lewat — dana ditarik client',
-      });
-      break;
-  }
-}
-
-/** Sinkronkan SATU job langsung dari chain. Dipanggil FE setelah tx. */
-export async function syncJob(jobId: number) {
-  if (!env.chainEnabled) return { skipped: true };
-
-  const latest = await publicClient().getBlockNumber();
-  const logs = await publicClient().getContractEvents({
-    address: escrowAddress(),
-    abi: geoEscrowAbi,
-    fromBlock: latest > 5000n ? latest - 5000n : 0n,
-    toBlock: latest,
-  });
-
-  let applied = 0;
-  for (const log of logs) {
-    if (Number((log as any).args?.jobId ?? -1) !== jobId) continue;
-    await applyLog(log);
-    applied++;
-  }
-  return { applied };
-}
-
-/** Cron: kejar semua event sejak bookmark terakhir. */
-export async function pollIndexer() {
-  if (!env.chainEnabled) return { skipped: true };
-  const addr = escrowAddress().toLowerCase();
-
-  const { data: state } = await db()
-    .from('indexer_state').select('*').eq('contract_addr', addr).maybeSingle();
-
-  const latest = await publicClient().getBlockNumber();
-  const from = BigInt(state?.last_block_processed ?? 0) + 1n;
-  if (from > latest) return { processedUpTo: Number(latest), logs: 0 };
-
-  // Batasi rentang: RPC publik menolak permintaan terlalu lebar.
-  const to = from + 2000n > latest ? latest : from + 2000n;
-
-  const logs = await publicClient().getContractEvents({
-    address: escrowAddress(), abi: geoEscrowAbi, fromBlock: from, toBlock: to,
-  });
-  for (const log of logs) await applyLog(log);
-
-  await db().from('indexer_state').upsert({
-    contract_addr: addr,
-    last_block_processed: Number(to),
-    updated_at: new Date().toISOString(),
-  });
-
-  return { processedUpTo: Number(to), logs: logs.length };
-}
+```solidity
+StructuralConfirmed(uint256 indexed jobId, uint256 amount, bytes32 seed)
 ```
 
-### Route
+Rancangan awal menulis `to_addr: log.args.freelancer` — **argumen itu tidak ada**. Hasilnya `undefined` masuk ke kolom `to_addr`, dan halaman Aktivitas menampilkan pencairan 20% tanpa penerima.
 
-`app/api/sync/[id]/route.ts`:
+Dan `seed` — yang justru paling berharga — **dibuang**. Padahal itu seed VRF yang menentukan subset verifikasi. Dengan menyimpannya di sini, Fase 8 tidak perlu memanggil `verificationSeed()` terpisah, dan yang lebih penting: **seed-nya terekam di database persis seperti yang dipancarkan kontrak**, jadi audit tidak bergantung pada pembacaan ulang yang bisa berbeda.
 
 ```ts
-import { syncJob } from '@/lib/indexer';
-import { rateLimit } from '@/lib/rate-limit';
-import { ok, fail, handler } from '@/lib/http';
+case 'StructuralConfirmed':
+  await patch({
+    status: 'Verifying',
+    structural_released_wei: String(log.args.amount),
+    verification_seed: log.args.seed,      // ← jangan dibuang
+  });
+  await act('structural_release', {
+    amount_wei: String(log.args.amount),
+    to_addr: job?.freelancer_addr ?? null, // ← dari DB, bukan dari event
+    note: 'Structural check lolos',
+  });
+  break;
+```
 
-export const POST = handler(async (
-  _req: Request,
-  { params }: { params: Promise<{ id: string }> }
-) => {
-  const { id } = await params;
-  if (!rateLimit(`sync:${id}`, 3_000)) {
-    return fail('RATE_LIMITED', 'Terlalu sering');
-  }
-  return ok(await syncJob(Number(id)));
+#### 3. `StructuralRejected` — tanpa ini job macet selamanya
+
+Kontrak mengembalikan status ke `Accepted` supaya freelancer bisa submit ulang. Kalau indexer tidak ikut menurunkannya, **database kita tetap bilang `Submitted`** sementara on-chain sudah `Accepted` — FE menampilkan "cek struktural…" selamanya, dan freelancer tidak pernah tahu kenapa ditolak.
+
+```ts
+case 'StructuralRejected':
+  await patch({
+    status: 'Accepted',
+    job_state: 'error',
+    last_error: `Structural ditolak: ${log.args.reason}`,
+    deliverable_hash: null,   // hash lama tidak berlaku lagi
+  });
+  await act('structural_rejected', { note: String(log.args.reason).slice(0, 200) });
+  break;
+```
+
+#### 4. `BondSettled` — pergerakan bond hilang dari ledger
+
+`settleRelease` memindahkan **dua** jumlah: sisa budget (event `Settled`) dan bond (event `BondSettled`). Tanpa menangani yang kedua, tipe `bond_return` dan `bond_slash` yang sudah ada di CHECK constraint tabel `activity` **tidak akan pernah terisi** — padahal prototipe menampilkannya sebagai baris tersendiri.
+
+```ts
+case 'BondSettled':
+  await act(log.args.slashed ? 'bond_slash' : 'bond_return', {
+    amount_wei: String(log.args.amount),
+    to_addr: log.args.recipient,
+    note: log.args.slashed
+      ? 'Bond freelancer di-slash (gagal capai target)'
+      : 'Bond freelancer dikembalikan',
+  });
+  break;
+```
+
+#### 5. Indexer mulai dari blok 0 — 65.000 permintaan RPC
+
+`last_block_processed` default `0`, dan tiap putaran memproses 2.000 blok. Kontrak di-deploy pada blok **130.726.113**. Artinya indexer akan menyisir **65 ribu rentang blok kosong** sebelum sampai ke blok pertama yang relevan — berjam-jam, dan hampir pasti kena rate limit RPC publik.
+
+Semai barisnya sekali di Supabase SQL Editor:
+
+```sql
+insert into indexer_state (contract_addr, last_block_processed)
+values (lower('0x41462F3092Ca66b7B3d9c8b20337793e2756cC46'), 130726112)
+on conflict (contract_addr) do nothing;
+-- 130726112 = satu blok SEBELUM deploy, supaya blok deploy sendiri ikut terbaca.
+```
+
+> Kolom kunci tabel ini **per alamat kontrak**, bukan `id = 1`. Selama hackathon kalian kemungkinan besar akan re-deploy; kalau bookmark-nya global, indexer akan mulai dari blok kontrak lama dan melewatkan semua event kontrak baru.
+
+#### 6. `syncJob` — saring di server, bukan di klien
+
+```ts
+// SEBELUM: ambil SEMUA event 5.000 blok terakhir, lalu buang yang bukan milik kita
+const logs = await getContractEvents({ fromBlock: latest - 5000n, toBlock: latest });
+for (const log of logs) { if (log.args.jobId !== jobId) continue; ... }
+```
+
+Dua masalah: boros (mengunduh event job lain), dan **5.000 blok di BSC hanya sekitar 4 jam** — job yang dibuat kemarin tidak akan pernah tersinkron.
+
+`jobId` bertanda `indexed` di semua event job, jadi bisa disaring di sisi RPC lewat topic — dan rentangnya boleh dari blok deploy karena hasilnya sudah tersaring:
+
+```ts
+const logs = await publicClient().getContractEvents({
+  address: escrowAddress(),
+  abi: geoEscrowAbi,
+  args: { jobId: BigInt(jobId) },   // ← filter topic, dikerjakan RPC
+  fromBlock: DEPLOY_BLOCK,
+  toBlock: 'latest',
 });
 ```
 
-`app/api/indexer/poll/route.ts`:
+#### 7. `jobId ?? 0` — job 0 itu job yang sah
+
+Sudah dibuktikan di Fase 9: **jobId pertama adalah 0.** Jadi:
 
 ```ts
-import type { NextRequest } from 'next/server';
-import { pollIndexer } from '@/lib/indexer';
-import { reclaimStaleLocks } from '@/lib/jobs-repo';
-import { env } from '@/lib/env';
-import { ok, fail, handler } from '@/lib/http';
-
-export const maxDuration = 60;
-
-export const GET = handler(async (req: NextRequest) => {
-  // verifyCronSecret (Fase 5): timing-safe, dan menolak kalau CRON_SECRET kosong.
-  if (!verifyCronSecret(req.headers.get('authorization'))) {
-    return fail('VALIDATION', 'unauthorized');
-  }
-  const reclaimed = await reclaimStaleLocks();  // bebaskan lock yang macet
-  const result = await pollIndexer();
-  return ok({ ...result, reclaimed });
-});
+const jobId = Number(log.args?.jobId ?? 0);   // ← "tidak ada" menyamar jadi job 0
 ```
 
-### Menjadwalkan cron
+Ganti sentinelnya dengan nilai yang mustahil:
+
+```ts
+const raw = log.args?.jobId;
+if (raw === undefined) return;      // event non-job (OracleChanged, dst)
+const jobId = Number(raw);
+```
+
+#### 8. Log bertipe, bukan `any`
+
+Dengan ABI sungguhan, viem bisa menurunkan tipe tiap event — `log.args.freelancer` pada `StructuralConfirmed` akan **ditolak compiler**, bukan diam-diam `undefined` seperti temuan #1.
+
+### 10.3 Dua hal yang sudah diputuskan — jalankan `supabase/migration-01-*.sql`
+
+#### `DisputeRaised` belum punya tipe activity yang cocok
+
+Rancangan awal memakai `'vrf_pick'`, yang salah arti — `vrf_pick` menandakan pemilihan subset, bukan sengketa. CHECK constraint tabel `activity` belum punya tipe untuk ini.
+
+**Keputusan: tambah tipe lewat migrasi.** Migrasi yang sama sekaligus menambah `structural_rejected` yang dibutuhkan temuan #3, dan menyemai bookmark indexer dari blok deploy.
+
+Sudah tersedia di `supabase/migration-01-activity-types-and-arbiter.sql` — jalankan di Supabase SQL Editor. File itu melakukan tiga hal: menambah tipe activity, menghapus `jobs.arbiter_addr` (lihat bagian berikutnya), dan menyemai bookmark indexer. Bagian pertamanya:
+
+```sql
+alter table activity drop constraint if exists activity_type_check;
+alter table activity add constraint activity_type_check check (type in (
+  'deposit','bond_lock','structural_release','structural_rejected',
+  'dispute_raised','vrf_pick','final_release','final_refund',
+  'jury_release','jury_refund','bond_return','bond_slash','reclaim'));
+```
+
+`vrf_pick` tetap dipertahankan karena prototipe memakainya untuk mencatat pemilihan subset — arti yang berbeda dari sengketa.
+
+#### `jobs.arbiter_addr` tidak pernah terisi
+
+Kolom itu ada di skema, tapi **tidak ada satu pun kode yang menulisnya** — dan memang tidak seharusnya: arbiter adalah nilai tingkat-kontrak (`arbiter()`), bukan per-job.
+
+**Keputusan: kolomnya dihapus, diganti `GET /api/chain-info`** yang membaca `arbiter()` langsung dari kontrak. Satu sumber kebenaran, dan otomatis ikut berubah kalau owner memanggil `setArbiter()` — sementara kolom per-job akan basi seketika.
+
+Endpoint-nya sudah ada (`app/api/chain-info/route.ts`), mengembalikan `oracle`, `arbiter`, `owner`, `bondBps`, `structuralBps`, dan `verifyTimeoutSeconds`. Hasilnya di-cache 60 detik di server: FE memanggilnya di setiap halaman detail, dan tanpa cache itu berarti 6 panggilan RPC per pembukaan halaman.
+
+```ts
+// di FE
+const { arbiter } = await fetch('/api/chain-info').then(r => r.json());
+const bolehMemutus = walletAktif?.toLowerCase() === arbiter?.toLowerCase();
+```
+
+### 10.4 Job yang dibuat di luar aplikasi kita
+
+`patch()` memakai `UPDATE ... WHERE job_id = ?`. Kalau ada yang memanggil `createJob()` langsung dari Etherscan atau skrip sendiri, barisnya **tidak ada di database kita** dan update-nya mengenai 0 baris — diam-diam, tanpa error.
+
+Job seperti itu tidak akan pernah muncul di Pasar. Itu bisa diterima (metadata seperti `brand` dan `queries` memang cuma ada di DB kita, tidak on-chain), tapi **harus disadari**: on-chain adalah sumber kebenaran untuk uang, database kita sumber kebenaran untuk metadata, dan job tanpa metadata tidak bisa ditampilkan.
+
+Minimal, catat kejadiannya supaya tidak membingungkan saat debug:
+
+```ts
+const { data } = await db().from('jobs').update(fields).eq('job_id', jobId).select('job_id');
+if ((data ?? []).length === 0) {
+  console.warn(`[indexer] job ${jobId} ada on-chain tapi tidak ada di DB — dibuat di luar aplikasi?`);
+}
+```
+
+### 10.5 Route
+
+`app/api/sync/[id]/route.ts` dan `app/api/indexer/poll/route.ts` — pakai `parseJobId()` dan `verifyCronSecret()` (keduanya dari Fase 5/6), bukan `Number(id)` dan perbandingan string mentah.
+
+### 10.6 Menjadwalkan cron
 
 `vercel.json`:
 
@@ -2327,7 +2443,7 @@ export const GET = handler(async (req: NextRequest) => {
 { "crons": [{ "path": "/api/indexer/poll", "schedule": "*/5 * * * *" }] }
 ```
 
-> **Verifikasi dulu batas frekuensi cron di plan Vercel kalian** sebelum bergantung padanya — plan gratis membatasi seberapa sering cron boleh jalan, dan angkanya berubah dari waktu ke waktu. Kalau ternyata terlalu jarang, pakai GitHub Actions (gratis, tiap 5 menit):
+> **Verifikasi dulu batas frekuensi cron di plan Vercel kalian.** Plan gratis membatasi seberapa sering cron boleh jalan, dan angkanya berubah dari waktu ke waktu. Kalau terlalu jarang, pakai GitHub Actions (gratis, tiap 5 menit):
 >
 > ```yaml
 > # .github/workflows/indexer.yml
@@ -2343,7 +2459,10 @@ export const GET = handler(async (req: NextRequest) => {
 >
 > Karena `POST /api/sync/:id` menangani jalur interaktif, frekuensi cron **tidak memengaruhi kualitas demo** — ia hanya jaring pengaman.
 
-**Selesai kalau:** kirim `createJob` dari wallet → panggil `POST /api/sync/1` → job muncul di DB dengan status & budget yang benar, dan satu baris di `activity`.
+**Selesai kalau:** kirim `createJob` dari wallet → panggil `POST /api/sync/0` → job muncul di DB dengan status & budget yang benar, dan satu baris `deposit` di `activity`.
+
+> **Sebelum menyalakan `CHAIN_ENABLED=true` dengan serius:** hapus data seed. Seed memakai `job_id` 1–6, dan job on-chain sungguhan mulai dari 0 — keduanya akan bertabrakan.
+
 
 ---
 
@@ -2371,7 +2490,12 @@ export const config = { matcher: '/api/:path*' };
 
 - [ ] `.env.local` tidak ter-commit (`git status` bersih)
 - [ ] Tidak ada `NEXT_PUBLIC_` pada `SERVICE_ROLE_KEY`, `ORACLE_PRIVATE_KEY`, atau API key AI
-- [ ] RLS aktif di keempat tabel; anon hanya punya policy `select`
+- [ ] `anon key` tidak dipakai di mana pun (kita memilih polling, bukan Realtime — §3.3).
+      **Kalau suatu saat dipakai, RLS WAJIB dinyalakan lebih dulu**
+- [ ] `CHAIN_ENABLED=true` — tanpa itu gerbang hash mati dan `POST /api/jobs`
+      serta `/deliverable` menolak jalan di produksi (interlock Fase 6 & 7)
+- [ ] Data seed sudah dihapus — `job_id` 1–6 bentrok dengan job on-chain
+      yang mulai dari 0
 - [ ] Wallet Oracle hanya diisi tBNB secukupnya untuk gas — **jangan** pakai wallet pribadi
 - [ ] `CRON_SECRET` acak dan panjang
 - [ ] Semua route memakai `handler()` (pesan error internal tidak bocor)
@@ -2390,9 +2514,11 @@ npm install -D @types/swagger-ui-react
 
 # BAGIAN 7 — Yang Harus Kamu Minta ke Tim Lain
 
-## 7.1 Ke orang blockchain — kirim hari ini
+## 7.1 Ke orang blockchain — **SELESAI, semua dipenuhi**
 
-Empat hal pertama **mengubah smart contract**, jadi harus disampaikan sebelum kontraknya dibekukan.
+> Kontrak sudah di-deploy 13 September 2026 dan **kedelapan permintaan di bawah diterapkan**. Metadata ABI-nya bahkan menulis: *"Bentuk & nama event/`getJob()` mengikuti spek yang dikunci di `geo-escrow-ringkasan-3-bagian.md` §3"* — tim blockchain memakai dokumen ini.
+>
+> Tabel ini dipertahankan sebagai catatan: kalau kontrak di-deploy ulang, kedelapan hal ini harus tetap ada.
 
 | # | Permintaan | Kenapa |
 |---|---|---|
@@ -2414,10 +2540,12 @@ Empat hal pertama **mengubah smart contract**, jadi harus disampaikan sebelum ko
 | 2 | `lib/hash.ts` **harus identik** dengan yang di backend | Import dari file yang sama, jangan disalin |
 | 3 | Urutan submit deliverable: **POST konten dulu, baru tx** | Lihat Fase 7 |
 | 4 | Panggil `POST /api/sync/:id` setelah tiap receipt tx | Ini yang membuat UI terasa instan |
-| 5 | Panel juri hanya muncul kalau wallet aktif == `arbiter_addr` | Prototipe menampilkannya ke semua orang |
+| 5 | Panel juri hanya muncul kalau wallet aktif == alamat arbiter | Prototipe menampilkannya ke semua orang. Baca dari **`GET /api/chain-info`** — kolom `jobs.arbiter_addr` sudah dihapus (migrasi 01) karena arbiter adalah nilai tingkat-kontrak |
 | 6 | Pakai `deriveUiStatus()`, jangan baca `job.status` mentah | 10 status UI adalah turunan, bukan kolom |
 | 7 | Semua wei adalah **string** — jangan `Number()` | Pakai `formatTBNB()` dari `lib/format.ts` |
-| 8 | Ganti `pollShared()` dengan Supabase Realtime | §3.4 |
+| 8 | Polling biasa (`setInterval` + refetch), **bukan** Supabase Realtime | Keputusan 2026-09-13 — §3.3 & §3.4 |
+| 9 | `jobId` pertama adalah **0**, bukan 1 | Jangan perlakukan 0 sebagai "belum ada" — §9.3 |
+| 10 | Baca `requiredBond(jobId)` sebelum `acceptJob` | Nilai `value` harus persis; kontrak menolak kalau meleset |
 
 ---
 
@@ -2426,7 +2554,7 @@ Empat hal pertama **mengubah smart contract**, jadi harus disampaikan sebelum ko
 | Fase | Isi | Perkiraan | Butuh kontrak? |
 |---|---|---|---|
 | 0 | Fondasi: env, http helper | 1 jam | — |
-| 1 | Database + RLS + Realtime | 45 mnt | — |
+| 1 | Database (tanpa RLS/Realtime — §3.3) | 45 mnt | — |
 | 2 | Lapisan murni: types, hash, vrf, scoring, verdict | 1,5 jam | — |
 | 3 | Repository + seed + 7 endpoint baca | 3 jam | — |
 | 4 | Oracle adapter (mock/claude) | 2 jam | — |
@@ -2435,34 +2563,47 @@ Empat hal pertama **mengubah smart contract**, jadi harus disampaikan sebelum ko
 | 7 | Deliverable + structural | 2 jam | — |
 | 8 | Verifikasi + verdict | 3 jam | — |
 | — | **← FE bisa dibangun penuh sampai sini** | | |
-| 9 | Chain: baca | 2 jam | **Ya** |
+| 9 | Chain: baca + jalur tulis | 2 jam | **Ya** — ✅ kode selesai |
 | 10 | Indexer + sync | 3 jam | **Ya** |
 | 11 | Pengerasan + dokumentasi | 2 jam | — |
 
 **Total ≈ 25 jam kerja efektif.** Fase 0–8 (≈18 jam) tidak bergantung pada tim blockchain sama sekali — kerjakan itu dulu tanpa menunggu siapa pun.
 
+**Status per 19 Sep 2026:** Fase 0–9 selesai dan teruji. Yang menahan Fase 9 dari benar-benar memindahkan dana bukan kodenya, melainkan dua hal di luar backend:
+
+1. `ORACLE_PRIVATE_KEY` untuk `0xa3291638aeE37B076E7CA389C3fd28d5B73a4791` — diserahkan lewat password manager terenkripsi, **tidak pernah lewat chat atau email**. Alternatifnya: owner memanggil `setOracle()` dengan wallet baru yang kuncinya kita pegang.
+2. Minimal satu `createJob()` on-chain. `jobCount()` masih 0, jadi belum ada apa pun untuk dibaca atau di-settle.
+
+Selama keduanya belum ada, `CHAIN_ENABLED` tetap `false` dan seluruh backend jalan seperti Fase 0–8.
+
 ## Urutan uji tiap selesai fase
 
+Semua uji unit sekaligus (tanpa server, tanpa database):
+
 ```bash
-# Fase 3
-curl -X POST localhost:3000/api/dev/seed
-curl "localhost:3000/api/jobs?filter=open"
-
-# Fase 5
-curl -X POST localhost:3000/api/jobs/1/baseline
-curl -X POST localhost:3000/api/jobs/1/baseline   # tidak boleh menambah oracle_runs
-
-# Fase 7
-curl -X POST localhost:3000/api/jobs/1/deliverable \
-  -H 'Content-Type: application/json' -d '{"content":"pendek"}'          # → 422
-curl -X POST localhost:3000/api/jobs/1/deliverable \
-  -H 'Content-Type: application/json' \
-  -d '{"content":"Root & Bloom adalah brand skincare organik asal Bandung yang memakai bahan alami."}'
-
-# Fase 8
-curl -X POST localhost:3000/api/jobs/1/verify
-curl localhost:3000/api/jobs/1/verdict
+npm run check      # 3 berkas, semuanya harus gagal: 0
+npx tsc --noEmit
+npm run lint
 ```
+
+Uji alur yang tidak punya endpoint HTTP — dijalankan langsung supaya
+tidak perlu menyalakan dev server (Turbopack butuh ratusan MB):
+
+```bash
+npx tsx scripts/dev-structural.ts      # Fase 7
+npx tsx scripts/dev-verify.ts          # Fase 8
+npx tsx scripts/dev-chain-check.ts     # Fase 9 -- ABI vs kontrak hidup   (11)
+npx tsx scripts/dev-chain-read.ts      # Fase 9 -- logika pembungkus      (17)
+npx tsx scripts/dev-migration-check.ts # migrasi 01 benar-benar mendarat   (9)
+```
+
+Tiga yang terakhir menembak jaringan sungguhan (RPC BSC Testnet dan
+Supabase), tapi tidak satu pun mengirim transaksi atau meninggalkan baris
+di database. Aman dijalankan kapan saja, termasuk berulang-ulang.
+
+Uji endpoint: buka `api.http` di VS Code (ekstensi REST Client), jalankan
+bagian **1. SEED** dulu, lalu bagian yang sesuai fasenya. Tiap blok
+menyebut hasil yang diharapkan.
 
 ---
 
@@ -2472,13 +2613,13 @@ curl localhost:3000/api/jobs/1/verdict
 |---|---|---|---|
 | `SUPABASE_URL` | 1 | tidak | URL project |
 | `SUPABASE_SERVICE_ROLE_KEY` | 1 | **TIDAK PERNAH** | Admin penuh, melewati RLS |
-| `NEXT_PUBLIC_SUPABASE_URL` | 1 | ya | Untuk Realtime di FE |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 1 | ya | Dibatasi RLS, aman terekspos |
+| `NEXT_PUBLIC_SUPABASE_URL` | — | ya | **Belum dipakai** — kita memilih polling. Biarkan kosong |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | — | ya | **Belum dipakai.** Kalau nanti diisi, RLS wajib dinyalakan dulu |
 | `ORACLE_PROVIDER` | 4 | tidak | `mock` \| `claude` |
 | `ANTHROPIC_API_KEY` | 4 | **TIDAK PERNAH** | |
-| `CHAIN_ENABLED` | 9 | tidak | `false` sampai kontrak siap |
-| `RPC_URL` | 9 | tidak | BNB testnet |
-| `GEO_ESCROW_ADDRESS` | 9 | tidak | |
+| `CHAIN_ENABLED` | 9 | tidak | `false` selama Fase 0–8. **Wajib `true` di produksi** — interlock Fase 6 & 7 menolak jalan tanpa itu |
+| `RPC_URL` | 9 | tidak | `https://bsc-testnet-rpc.publicnode.com`. Endpoint `data-seed-prebsc-1` **sudah mati** |
+| `GEO_ESCROW_ADDRESS` | 9 | tidak | `0x41462F3092Ca66b7B3d9c8b20337793e2756cC46` (BSC Testnet, blok deploy 130.726.113) |
 | `ORACLE_PRIVATE_KEY` | 9 | **TIDAK PERNAH** | Wallet khusus, isi seperlunya |
 | `CRON_SECRET` | 10 | tidak | String acak panjang |
 

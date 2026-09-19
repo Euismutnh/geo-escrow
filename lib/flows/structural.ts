@@ -1,11 +1,32 @@
 import { getJob, acquireLock, releaseLock } from '../jobs-repo';
-import { confirmStructuralOnChain } from '../chain-server';
+import { confirmStructuralOnChain, rejectStructuralOnChain } from '../chain-server';
 import { contentHash } from '../hash';
 import { checkStructural } from '../structural';
 
 export type ConfirmResult =
-  | { ok: true; txHash: string }
-  | { ok: false; skipped: string };
+  | {
+      ok: true;
+      txHash: string;
+      /**
+       * true = kontrak SUDAH melewati structural, jadi tidak ada transaksi
+       * baru yang dikirim. Indexer memanggil alur ini berkali-kali untuk
+       * job yang sama; tanpa penanda ini, setiap panggilan akan terlihat
+       * seperti pencairan 20% yang baru.
+       */
+      alreadyDone: boolean;
+    }
+  | {
+      ok: false;
+      skipped: string;
+      /**
+       * Terisi hanya kalau structural GAGAL dan kontrak sudah diberi tahu
+       * lewat `rejectStructural` — job kembali ke `Accepted` dan freelancer
+       * boleh submit ulang. Alasan dilewati yang lain (status belum siap,
+       * konten belum ada, job sedang dikerjakan proses lain) tidak
+       * menyentuh kontrak sama sekali.
+       */
+      rejectedOnChain?: string;
+    };
 
 /**
  * Konfirmasi structural ke smart contract -- inilah yang memicu
@@ -60,17 +81,48 @@ export async function confirmStructural(jobId: number): Promise<ConfirmResult> {
     // (indexer, migrasi data, perbaikan manual di database).
     const structural = checkStructural(content, job.brand);
     if (!structural.pass) {
-      await releaseLock(jobId, 'error', structural.message);
-      return { ok: false, skipped: `structural gagal: ${structural.reason}` };
+      // `message` opsional di StructuralResult. Cadangannya bukan basa-basi:
+      // string ini dikirim ke kontrak dan tersimpan permanen di event —
+      // string kosong di sana tidak bisa diperbaiki lagi.
+      const alasan = structural.message ?? `Structural gagal: ${structural.reason ?? 'tidak lolos'}`;
+
+      // Kontrak WAJIB diberi tahu. Tanpa ini, job tetap `Submitted`
+      // selamanya di on-chain: `submitDeliverable` menolak status itu,
+      // jadi freelancer tidak bisa submit ulang, dan dana terkunci
+      // sampai ada yang memanggil escalateStuckJob() setelah 7 hari.
+      //
+      // `rejectStructural` mengembalikannya ke `Accepted` — bond tetap
+      // di tangan freelancer, dan ia boleh mencoba lagi.
+      const { hash: txHash } = await rejectStructuralOnChain(
+        BigInt(jobId),
+        // Pesannya masuk ke event StructuralRejected dan terbaca publik
+        // selamanya. `alasan` aman: ia hanya menyebut aturan
+        // yang dilanggar (panjang minimum, nama brand), tidak pernah
+        // mengutip isi deliverable.
+        alasan
+      );
+
+      // 'idle', bukan 'error': penolakan structural adalah hasil yang SAH,
+      // bukan kegagalan sistem. 'error' akan membuat reclaimStaleLocks()
+      // dan tombol coba-lagi di UI memperlakukannya sebagai sesuatu yang
+      // perlu diulang — padahal yang perlu terjadi adalah freelancer
+      // mengirim konten baru. `last_error` tetap diisi supaya alasannya
+      // terbaca di UI.
+      await releaseLock(jobId, 'idle', alasan);
+      return {
+        ok: false,
+        skipped: `structural gagal: ${structural.reason}`,
+        rejectedOnChain: txHash,
+      };
     }
 
     // Kontrak yang menghitung dan mencairkan 20%. Backend TIDAK pernah
     // menghitung angkanya sendiri -- nilai sebenarnya masuk ke database
     // lewat event StructuralConfirmed, dan indexer yang menuliskannya.
-    const { hash: txHash } = await confirmStructuralOnChain(BigInt(jobId));
+    const { hash: txHash, alreadyDone } = await confirmStructuralOnChain(BigInt(jobId));
 
     await releaseLock(jobId, 'idle');
-    return { ok: true, txHash };
+    return { ok: true, txHash, alreadyDone };
   } catch (e) {
     await releaseLock(jobId, 'error', e instanceof Error ? e.message : String(e));
     throw e;

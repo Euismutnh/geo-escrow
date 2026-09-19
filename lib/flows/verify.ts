@@ -18,6 +18,13 @@ export interface VerifyResult {
   txHash: string;
   /** false = settlement tidak benar-benar terjadi (CHAIN_ENABLED=false). */
   settledOnChain: boolean;
+  /**
+   * true = tidak ada transaksi BARU yang dikirim karena kontrak sudah
+   * berada di status akhir. Dana sudah berpindah di percobaan sebelumnya;
+   * ini yang mencegah pembayaran ganda. `txHash` saat itu berisi sentinel
+   * '0xsudah', bukan hash sungguhan.
+   */
+  alreadySettled: boolean;
   /** true = verdict sudah ada sebelumnya, yang diulang hanya settlement-nya. */
   resumedSettlement: boolean;
 }
@@ -69,7 +76,7 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
       const verdict = job.verdict_json as Verdict;
       const vHash = verdictHash(verdict);
 
-      const { hash: txHash } = await settleOnChain(
+      const { hash: txHash, alreadyDone } = await settleOnChain(
         BigInt(jobId),
         verdict.decision,
         vHash
@@ -84,6 +91,7 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
         subset: verdict.subset,
         txHash,
         settledOnChain: env.chainEnabled,
+        alreadySettled: alreadyDone,
         resumedSettlement: true,
       };
     }
@@ -151,7 +159,7 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
     // ---- 7. Baru kirim on-chain ----
     // Kontrak yang mengubah status dan memindahkan dana. Backend TIDAK
     // menulis kolom `status` — itu wewenang indexer (§2.1).
-    const { hash: txHash } = await settleOnChain(BigInt(jobId), decision, vHash);
+    const { hash: txHash, alreadyDone } = await settleOnChain(BigInt(jobId), decision, vHash);
 
     await releaseLock(jobId, 'idle');
 
@@ -163,6 +171,7 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
       subset,
       txHash,
       settledOnChain: env.chainEnabled,
+      alreadySettled: alreadyDone,
       resumedSettlement: false,
     };
   } catch (e) {

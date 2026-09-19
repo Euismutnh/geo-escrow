@@ -70,6 +70,30 @@ async function main() {
   show('last_error', bad.last_error);
 
   line();
+  console.log('  3b. Structural GAGAL -> kontrak harus DIBERI TAHU');
+  console.log('     Konten terlalu pendek. Tanpa rejectStructural, job tetap');
+  console.log('     "Submitted" selamanya on-chain: submitDeliverable menolak');
+  console.log('     status itu, jadi freelancer tidak bisa submit ulang dan');
+  console.log('     dana terkunci sampai escalateStuckJob() setelah 7 hari.');
+  const PENDEK = 'terlalu pendek';
+  await db()
+    .from('jobs')
+    .update({
+      status: 'Submitted',
+      job_state: 'idle',
+      last_error: null,
+      deliverable_content: PENDEK,
+      deliverable_hash: contentHash(PENDEK),
+    })
+    .eq('job_id', JOB);
+  const tolak = await confirmStructural(JOB);
+  show('hasil', tolak);
+  const setelahTolak = await getJob(JOB);
+  show('rejectedOnChain (harus terisi)', 'rejectedOnChain' in tolak ? tolak.rejectedOnChain : null);
+  show('job_state (harus "idle", BUKAN "error")', setelahTolak.job_state);
+  show('last_error (alasannya terbaca)', setelahTolak.last_error);
+
+  line();
   console.log('  4. BUKTI PERBAIKAN BUG URUTAN LOCK');
   console.log('     Job sedang running_verify, lalu indexer lewat mengecek.');
   console.log('     Versi lama memanggil releaseLock TANPA memegang lock,');
@@ -88,7 +112,12 @@ async function main() {
   show('job_state (HARUS tetap running_verify)', untouched.job_state);
 
   line();
-  const lulus = untouched.job_state === 'running_verify';
+  const lulus =
+    untouched.job_state === 'running_verify' &&
+    setelahTolak.job_state === 'idle' &&
+    !!setelahTolak.last_error &&
+    'rejectedOnChain' in tolak &&
+    !!tolak.rejectedOnChain;
   console.log(lulus ? '  SEMUA BENAR' : '  ADA YANG SALAH -- job_state tertimpa!');
   console.log('\n  Pulihkan data: POST http://localhost:3000/api/dev/seed\n');
   process.exit(lulus ? 0 : 1);

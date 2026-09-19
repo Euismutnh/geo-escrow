@@ -515,7 +515,32 @@ GET {{baseUrl}}/jobs/1/oracle-log?phase=bogus
 
 
 ###############################################################
-# 9. BELUM ADA  (menyusul di fase berikutnya)
+# 9. CHAIN-INFO  (Fase 9 - jalur baca, tanpa private key)
+#
+# Sumber kebenaran untuk alamat arbiter. FE memakai ini untuk
+# memutuskan apakah panel juri ditampilkan -- kolom jobs.arbiter_addr
+# sudah dihapus di migrasi 01.
+#
+# Bekerja walau CHAIN_ENABLED=false: eth_call tidak butuh tanda tangan.
+# Kalau GEO_ESCROW_ADDRESS atau RPC_URL kosong, semua nilai -> null
+# (bentuk respons tetap sama, FE tidak perlu menangani dua bentuk).
+###############################################################
+
+### konfigurasi tingkat-kontrak -> 200
+# Harapan (kontrak 0x41462F...cC46 di BSC Testnet):
+#   oracle                0xa3291638aeE37B076E7CA389C3fd28d5B73a4791
+#   arbiter               0xd1ff61def4D7c6dB938A4501f460b5176fcbCd78
+#   owner                 0x8766d055bB79B511FCC34Bd1573ce612dFa4057D
+#   bondBps               500
+#   structuralBps         2000
+#   verifyTimeoutSeconds  604800
+#
+# Panggilan kedua harus balik <5ms -- itu cache 60 detik yang bekerja.
+GET {{baseUrl}}/chain-info
+
+
+###############################################################
+# 10. BELUM ADA  (menyusul di fase berikutnya)
 #
 #   POST /api/sync/:id                  Fase 10
 #   GET  /api/indexer/poll              Fase 10

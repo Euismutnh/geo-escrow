@@ -26,7 +26,8 @@ export interface Job {
   // ---- pihak ----
   client_addr: string;
   freelancer_addr: string | null;
-  arbiter_addr: string | null;
+  // arbiter_addr DIHAPUS (migrasi 01): arbiter adalah nilai tingkat-kontrak,
+  // bukan properti per-job. Baca lewat GET /api/chain-info.
 
   // ---- isi kontrak (off-chain) ----
   brand: string;
