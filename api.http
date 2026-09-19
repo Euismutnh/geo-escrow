@@ -1,0 +1,522 @@
+# ============================================================
+# GEO Escrow - koleksi request API
+#
+# Cara pakai:
+#   1. Pasang ekstensi VS Code "REST Client" (humao.rest-client)
+#   2. Jalankan `npm run dev`
+#   3. Klik "Send Request" yang muncul di atas tiap blok ###
+#
+# Tiap blok menyebut hasil yang DIHARAPKAN, jadi file ini sekaligus
+# jadi daftar uji manual tiap kali ada perubahan.
+# ============================================================
+
+@baseUrl=http://localhost:3000/api
+
+# Samakan dengan CRON_SECRET di .env.local
+@cronSecret=dev-secret-ganti-sebelum-deploy
+
+# Alamat dari data seed (lihat app/api/dev/seed/route.ts)
+@clientA=0x1111111111111111111111111111111111111111
+@clientB=0x2222222222222222222222222222222222222222
+@freelancer=0x3333333333333333333333333333333333333333
+
+
+###############################################################
+# 0. KESEHATAN SISTEM
+###############################################################
+
+### Health check -> database "connected", 4 tabel terbaca
+GET {{baseUrl}}/hello
+
+
+###############################################################
+# 1. SEED  (jalankan ini dulu sebelum yang lain)
+###############################################################
+
+### Isi ulang data contoh -> {jobs:6, oracleRuns:26, activity:15}
+# Menghapus job 1-6 lalu menulis ulang. Aman diulang berkali-kali.
+# Ditolak kalau NODE_ENV=production.
+POST {{baseUrl}}/dev/seed
+
+
+###############################################################
+# 2. DAFTAR JOB  (halaman Pasar)
+###############################################################
+
+### Semua job -> total 6
+GET {{baseUrl}}/jobs
+
+### Tab "Terbuka" -> total 2 (job 1, 2)
+GET {{baseUrl}}/jobs?filter=open
+
+### Tab "Berjalan" -> total 2 (job 3 Accepted, job 4 Verifying)
+# Gabungan 3 status on-chain, makanya pakai ?filter= bukan ?status=
+GET {{baseUrl}}/jobs?filter=progress
+
+### Tab "Perlu juri" -> total 1 (job 5)
+GET {{baseUrl}}/jobs?filter=dispute
+
+### Tab "Selesai" -> total 1 (job 6)
+GET {{baseUrl}}/jobs?filter=done
+
+### Halaman "Kontrak Saya" - freelancer -> total 4 (job 3,4,5,6)
+GET {{baseUrl}}/jobs?wallet={{freelancer}}
+
+### Halaman "Kontrak Saya" - client A -> total 3 (job 1,3,5)
+GET {{baseUrl}}/jobs?wallet={{clientA}}
+
+### Pagination -> 2 job per halaman
+GET {{baseUrl}}/jobs?page=1&limit=2
+
+### Untuk kartu "Kontrak terbaru" di Ringkasan
+GET {{baseUrl}}/jobs?limit=3
+
+
+###############################################################
+# 3. DETAIL JOB  (halaman Detail Kontrak)
+###############################################################
+
+### Detail saja -> runs & activity TIDAK ikut
+GET {{baseUrl}}/jobs/1
+
+### Detail + radar sitasi + ledger -> hemat 2 request
+# runs: 5 baris (1 hit), activity: 1 baris
+GET {{baseUrl}}/jobs/1?include=runs,activity
+
+### Job yang sudah diverifikasi -> ada verification_* terisi
+GET {{baseUrl}}/jobs/5?include=runs
+
+### Job yang sudah selesai -> settled_by "oracle"
+GET {{baseUrl}}/jobs/6?include=runs,activity
+
+
+###############################################################
+# 4. LOG ORACLE
+###############################################################
+
+### Halaman global -> semua job, `jobs.brand` ikut lewat relasi
+GET {{baseUrl}}/oracle-log?limit=10
+
+### Saring per fase
+GET {{baseUrl}}/oracle-log?phase=verification
+
+### Tab log di dalam detail kontrak
+GET {{baseUrl}}/jobs/1/oracle-log
+
+### Per fase, untuk 1 job
+GET {{baseUrl}}/jobs/5/oracle-log?phase=verification
+
+
+###############################################################
+# 5. AKTIVITAS  (ledger)
+###############################################################
+
+### Semua transaksi
+GET {{baseUrl}}/activity?limit=10
+
+### Transaksi 1 job
+GET {{baseUrl}}/activity?jobId=6
+
+
+###############################################################
+# 6. RINGKASAN
+###############################################################
+
+### Client A -> asClient 3, asFreelancer 0, needJury 1, done 0
+GET {{baseUrl}}/stats?wallet={{clientA}}
+
+### Freelancer -> asClient 0, asFreelancer 4, needJury 1, done 1
+GET {{baseUrl}}/stats?wallet={{freelancer}}
+
+### Tanpa wallet -> hanya needJury yang terisi
+GET {{baseUrl}}/stats
+
+
+###############################################################
+# 6b. BASELINE  (Fase 5) -- MEMBAKAR KREDIT AI
+#
+# Aturan akses:
+#   - dengan Authorization: Bearer <CRON_SECRET>  -> selalu boleh
+#   - tanpa header                                -> HANYA kalau
+#     job_state = "error" (tombol coba-lagi)
+#
+# Baseline PERTAMA tidak lewat sini -- Fase 6 memanggilnya langsung
+# lewat after() saat job dibuat.
+###############################################################
+
+### Jalankan baseline job 2 (internal, pakai secret)
+# Pertama kali -> fromCache:false. Panggil lagi -> fromCache:true,
+# dan oracle_runs TIDAK bertambah (resumable).
+POST {{baseUrl}}/jobs/2/baseline
+Authorization: Bearer {{cronSecret}}
+
+### Cek hasilnya -> 8 baris (4 query x 2 engine, job 2 multi_engine)
+GET {{baseUrl}}/jobs/2/oracle-log?phase=baseline
+
+### Tanpa secret pada job sehat -> harus 409 WRONG_STATUS
+# Ini yang mencegah orang asing menyuruh server menghabiskan kredit AI.
+POST {{baseUrl}}/jobs/2/baseline
+
+### Secret salah -> harus ditolak (409 atau 429, tidak pernah 200)
+POST {{baseUrl}}/jobs/2/baseline
+Authorization: Bearer salah-total
+
+### jobId bukan angka -> 400 VALIDATION
+POST {{baseUrl}}/jobs/abc/baseline
+Authorization: Bearer {{cronSecret}}
+
+###############################################################
+# 6c. BUAT JOB  (Fase 6) -- gerbang hash + pemicu baseline
+#
+# Dipanggil FE SETELAH transaksi createJob() sukses.
+# Backend menghitung ulang queryPoolHash lalu mencocokkannya dengan
+# yang terkunci on-chain. Dengan CHAIN_ENABLED=false gerbang itu MATI,
+# karena itu ada rate limit + penolakan mutlak di produksi.
+#
+# CATATAN: jobId di bawah sengaja 900-an supaya tidak bentrok dengan
+# data seed (1-6). Hapus lewat Supabase kalau sudah selesai menguji.
+###############################################################
+
+### Jalur bahagia -> 200, lalu baseline jalan sendiri lewat after()
+POST {{baseUrl}}/jobs
+Content-Type: application/json
+
+{
+  "jobId": 903,
+  "clientAddr": "{{clientB}}",
+  "brand": "Teh Poci",
+  "brief": "Teh melati kemasan dari Slawi.",
+  "queries": [
+    "Merek teh melati lokal apa yang bagus?",
+    "Teh kemasan Indonesia apa yang recommended?",
+    "Di mana beli teh melati asli?"
+  ],
+  "targetCount": 2,
+  "multiEngine": false,
+  "budgetWei": "20000000000000000",
+  "acceptDeadline": "2027-01-01T00:00:00.000Z"
+}
+
+### Cek hasilnya -> baseline_score terisi sendiri, job_state "idle"
+# Tunggu 2-3 detik setelah request di atas.
+GET {{baseUrl}}/jobs/901?include=runs
+
+### jobId sama dua kali -> 400, "sudah terdaftar"
+# Sengaja memakai wallet BERBEDA dari jalur bahagia di atas. Kalau
+# memakai wallet yang sama, rate limit per-alamat (5 detik) yang akan
+# menolaknya lebih dulu -- hasilnya RATE_LIMITED, dan uji duplikatnya
+# tidak pernah benar-benar teruji.
+POST {{baseUrl}}/jobs
+Content-Type: application/json
+
+{
+  "jobId": 901,
+  "clientAddr": "{{freelancer}}",
+  "brand": "Teh Poci",
+  "queries": ["a satu?", "b dua?", "c tiga?"],
+  "targetCount": 2,
+  "budgetWei": "20000000000000000",
+  "acceptDeadline": "2027-01-01T00:00:00.000Z"
+}
+
+### Pertanyaan kembar -> 400
+# Hash-nya tetap sah, tapi pengukurannya lemah DAN membayar panggilan
+# AI dua kali untuk informasi yang sama.
+POST {{baseUrl}}/jobs
+Content-Type: application/json
+
+{
+  "jobId": 902,
+  "clientAddr": "{{clientB}}",
+  "brand": "Uji",
+  "queries": ["sama persis?", "SAMA PERSIS?", "yang beda?"],
+  "targetCount": 2,
+  "budgetWei": "20000000000000000",
+  "acceptDeadline": "2027-01-01T00:00:00.000Z"
+}
+
+### budgetWei sebagai number -> 400
+# Di atas 2^53 (~0,009 tBNB) number JS kehilangan presisi, dan nilai
+# yang sudah rusak saat masuk tidak bisa diperbaiki lagi di belakang.
+POST {{baseUrl}}/jobs
+Content-Type: application/json
+
+{
+  "jobId": 903,
+  "clientAddr": "{{clientB}}",
+  "brand": "Uji",
+  "queries": ["a satu?", "b dua?", "c tiga?"],
+  "targetCount": 2,
+  "budgetWei": 20000000000000000,
+  "acceptDeadline": "2027-01-01T00:00:00.000Z"
+}
+
+### Deadline di masa lalu -> 400
+POST {{baseUrl}}/jobs
+Content-Type: application/json
+
+{
+  "jobId": 904,
+  "clientAddr": "{{clientB}}",
+  "brand": "Uji",
+  "queries": ["a satu?", "b dua?", "c tiga?"],
+  "targetCount": 2,
+  "budgetWei": "20000000000000000",
+  "acceptDeadline": "2020-01-01T00:00:00.000Z"
+}
+
+### clientAddr bukan alamat -> 400
+POST {{baseUrl}}/jobs
+Content-Type: application/json
+
+{
+  "jobId": 905,
+  "clientAddr": "bukan-alamat",
+  "brand": "Uji",
+  "queries": ["a satu?", "b dua?", "c tiga?"],
+  "targetCount": 2,
+  "budgetWei": "20000000000000000",
+  "acceptDeadline": "2027-01-01T00:00:00.000Z"
+}
+
+###############################################################
+# 6d. RATE LIMIT DUA LAPIS  (Fase 6)
+#
+# CARA MENJALANKAN: klik A lalu B lalu C berurutan, dengan jeda sekitar
+# 1 detik. JANGAN mengedit apa pun di antaranya -- ketiganya sudah
+# berbeda jobId/wallet, tinggal klik.
+#
+# Jendela waktunya ada DUA, dan jeda ~1 detik pas berada di antaranya:
+#
+#   < 0,5 detik  -> kena limit GLOBAL ("Server sedang sibuk").
+#                   Benar, tapi bukan yang sedang kita uji.
+#   ~1 detik     -> yang kita mau: global sudah lewat, per-wallet belum.
+#   > 5 detik    -> per-wallet sudah kadaluarsa, blok B balas 200.
+#                   Bukan rusak, cuma kelamaan -- ulangi dengan jobId baru.
+#
+# Kecepatan klik manusia di REST Client biasanya pas di rentang ini.
+# Bedakan dua pesannya: "Server sedang sibuk" = limit global,
+# "Tunggu beberapa detik" = limit per-wallet (yang ini yang dicari).
+###############################################################
+
+### A. Wallet A buat job -> 200
+POST {{baseUrl}}/jobs
+Content-Type: application/json
+
+{
+  "jobId": 910,
+  "clientAddr": "{{clientA}}",
+  "brand": "Uji Rate A",
+  "queries": ["ratelimit a1?", "ratelimit a2?", "ratelimit a3?"],
+  "targetCount": 2,
+  "budgetWei": "20000000000000000",
+  "acceptDeadline": "2027-01-01T00:00:00.000Z"
+}
+
+### B. Wallet A LAGI, langsung setelah A -> 429 RATE_LIMITED
+# Wallet yang sama dalam 5 detik. Inilah lapis ketat per-alamat.
+POST {{baseUrl}}/jobs
+Content-Type: application/json
+
+{
+  "jobId": 911,
+  "clientAddr": "{{clientA}}",
+  "brand": "Uji Rate B",
+  "queries": ["ratelimit b1?", "ratelimit b2?", "ratelimit b3?"],
+  "targetCount": 2,
+  "budgetWei": "20000000000000000",
+  "acceptDeadline": "2027-01-01T00:00:00.000Z"
+}
+
+### C. Wallet B, langsung setelah B -> 200
+# INI PEMBUKTIANNYA: wallet lain TIDAK ikut terjegal oleh limit wallet A.
+# Kalau blok ini juga 429, berarti rancangannya menghukum user yang sah --
+# dua orang yang membuat job bersamaan saat demo akan saling menjegal.
+POST {{baseUrl}}/jobs
+Content-Type: application/json
+
+{
+  "jobId": 911,
+  "clientAddr": "{{clientB}}",
+  "brand": "Uji Rate C",
+  "queries": ["ratelimit c1?", "ratelimit c2?", "ratelimit c3?"],
+  "targetCount": 2,
+  "budgetWei": "20000000000000000",
+  "acceptDeadline": "2027-01-01T00:00:00.000Z"
+}
+
+
+###############################################################
+# 6e. DELIVERABLE  (Fase 7) -- structural check + gerbang hash
+#
+# URUTANNYA SENGAJA TERBALIK: konten dikirim ke sini DULU, baru
+# freelancer menandatangani submitDeliverable(jobId, hash).
+#
+# Kalau tx dikirim duluan lalu tab ditutup, job nyangkut permanen di
+# status Submitted tanpa konten -- Oracle tidak punya apa pun untuk
+# diverifikasi dan dananya terkunci. Dengan urutan ini, structural
+# check juga jalan SEBELUM freelancer membayar gas.
+#
+# Job 3 (Tenun Nusa) berstatus Accepted, jadi siap menerima.
+# Ada rate limit 2 detik per job -- beri jeda antar klik.
+###############################################################
+
+### Terlalu pendek -> 422 STRUCTURAL_FAILED
+POST {{baseUrl}}/jobs/3/deliverable
+Content-Type: application/json
+
+{ "content": "Tenun Nusa bagus" }
+
+### Panjang cukup tapi TIDAK menyebut brand -> 422
+# Bukan formalitas: isi ini jadi konteks yang dibaca Oracle saat
+# verifikasi. Tanpa nama brand di dalamnya, verifikasi hampir pasti
+# gagal -- dan itu baru ketahuan setelah panggilan AI dibayar.
+POST {{baseUrl}}/jobs/3/deliverable
+Content-Type: application/json
+
+{ "content": "Produk kain tenun ikat asal Nusa Tenggara Timur yang dibuat pengrajin lokal secara tradisional." }
+
+### Valid -> 200 + deliverableHash
+# hash yang dikembalikan inilah yang dipakai FE di
+# submitDeliverable(jobId, deliverableHash).
+POST {{baseUrl}}/jobs/3/deliverable
+Content-Type: application/json
+
+{ "content": "Tenun Nusa adalah brand kain tenun ikat asal Nusa Tenggara Timur yang bekerja sama langsung dengan pengrajin lokal." }
+
+### Kirim ulang isi yang SAMA -> 200 (hash sama, boleh)
+POST {{baseUrl}}/jobs/3/deliverable
+Content-Type: application/json
+
+{ "content": "Tenun Nusa adalah brand kain tenun ikat asal Nusa Tenggara Timur yang bekerja sama langsung dengan pengrajin lokal." }
+
+### Isi BERBEDA setelah hash terkunci -> 400 HASH_MISMATCH
+# Inilah yang menutup celah "orang lain menimpa konten setelah
+# freelancer menandatanganinya".
+POST {{baseUrl}}/jobs/3/deliverable
+Content-Type: application/json
+
+{ "content": "Tenun Nusa versi lain yang isinya sudah diubah orang lain tanpa sepengetahuan freelancer." }
+
+### Job 1 (status Open, belum diambil) -> 409 WRONG_STATUS
+POST {{baseUrl}}/jobs/1/deliverable
+Content-Type: application/json
+
+{ "content": "Root & Bloom adalah brand skincare organik asal Bandung dengan bahan alami pilihan." }
+
+### Job 6 (sudah selesai) -> 409 WRONG_STATUS
+POST {{baseUrl}}/jobs/6/deliverable
+Content-Type: application/json
+
+{ "content": "Gula Aren Manis adalah produsen gula aren organik dari Lebak Banten tanpa campuran." }
+
+### content bukan teks -> 400
+POST {{baseUrl}}/jobs/3/deliverable
+Content-Type: application/json
+
+{ "content": 12345 }
+
+###############################################################
+# 6f. VERIFIKASI + VERDICT  (Fase 8) -- INTI SISTEM
+#
+# Endpoint paling mahal: memanggil AI DAN mengirim transaksi yang
+# memindahkan dana. Rate limit 30 detik per job.
+#
+# Job 4 (Jamu Sehat) berstatus Verifying dan punya deliverable.
+#
+# CATATAN: alur ini juga bisa diuji tanpa server, lebih ringan:
+#   npx tsx scripts/dev-verify.ts
+###############################################################
+
+### Verifikasi job 4 -> 200 dengan decision + verdictHash
+# settledOnChain:false karena CHAIN_ENABLED=false -- tidak ada dana
+# yang benar-benar berpindah.
+POST {{baseUrl}}/jobs/4/verify
+
+### Verifikasi kedua -> 409 "sudah diverifikasi"
+POST {{baseUrl}}/jobs/4/verify
+
+### ENDPOINT AUDIT -- ini yang ditunjukkan ke juri
+# Tiga hal dihitung ulang dan bisa diulangi siapa pun:
+#   subsetMatches     -> subset diturunkan ulang dari seed. Kalau Oracle
+#                        mengulang undian sampai dapat pertanyaan yang
+#                        menguntungkan, hasil hitung ulang tidak cocok.
+#   decisionMatches   -> keputusan dihitung ulang dengan aritmetika
+#                        integer dari skor yang dipublikasi.
+#   hashMatchesStored -> hash verdict dihitung ulang dari isinya.
+#   hashMatchesChain  -> dibandingkan dengan yang tersimpan on-chain
+#                        (selalu false selama CHAIN_ENABLED=false).
+#
+# Field "canonical" adalah string persis yang di-keccak256 -- disertakan
+# supaya pihak luar bisa menghitung sendiri tanpa menebak format kami.
+GET {{baseUrl}}/jobs/4/verdict
+
+### Verdict job yang belum diverifikasi -> 404
+GET {{baseUrl}}/jobs/1/verdict
+
+### Verifikasi job berstatus salah -> 409
+# Job 1 masih Open, belum ada deliverable.
+POST {{baseUrl}}/jobs/1/verify
+
+### jobId bukan angka -> 400
+POST {{baseUrl}}/jobs/abc/verify
+
+###############################################################
+# 7. UJI KEAMANAN  (semua HARUS 400, bukan data)
+#
+# Filter PostgREST adalah STRING yang di-parse server. Tanpa
+# parseAddress() di lib/validate.ts, nilai di bawah ini berhasil
+# menyuntikkan sintaks filter -- yang ",job_id.gte.0" bahkan
+# mengembalikan SELURUH 6 job, bukan 3 milik client A.
+###############################################################
+
+### Injeksi: bypass filter total -> harus 400 VALIDATION
+GET {{baseUrl}}/jobs?wallet={{clientA}},job_id.gte.0
+
+### Injeksi: tambah kondisi OR -> harus 400 VALIDATION
+GET {{baseUrl}}/jobs?wallet={{clientA}},status.eq.Open
+
+### Injeksi lewat endpoint stats -> harus 400 VALIDATION
+GET {{baseUrl}}/stats?wallet={{clientA}},job_id.gte.0
+
+### Wildcard -> harus 400 VALIDATION
+GET {{baseUrl}}/jobs?wallet=*
+
+### Alamat kependekan -> harus 400 VALIDATION
+GET {{baseUrl}}/jobs?wallet=0x1234
+
+
+###############################################################
+# 8. INPUT RUSAK  (harus anggun, JANGAN sampai 500)
+###############################################################
+
+### page bukan angka -> 200, jatuh ke default page 1
+# Number('abc') = NaN, dan NaN lolos diam-diam lewat Math.max/min
+# lalu meledak di .range(NaN, NaN). parseIntParam menangkapnya.
+GET {{baseUrl}}/jobs?page=abc
+
+### limit kelewat besar -> 200, diklem ke 50
+GET {{baseUrl}}/jobs?limit=99999
+
+### page negatif -> 200, diklem ke 1
+GET {{baseUrl}}/jobs?page=-5
+
+### jobId bukan angka -> 400 VALIDATION
+GET {{baseUrl}}/jobs/abc
+
+### jobId tidak ada -> 404 NOT_FOUND
+GET {{baseUrl}}/jobs/999
+
+### filter tidak dikenal -> 400 VALIDATION + daftar pilihan
+GET {{baseUrl}}/jobs?filter=bogus
+
+### phase tidak dikenal -> 400 VALIDATION
+GET {{baseUrl}}/jobs/1/oracle-log?phase=bogus
+
+
+###############################################################
+# 9. BELUM ADA  (menyusul di fase berikutnya)
+#
+#   POST /api/sync/:id                  Fase 10
+#   GET  /api/indexer/poll              Fase 10
+###############################################################

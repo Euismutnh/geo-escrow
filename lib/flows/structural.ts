@@ -1,0 +1,78 @@
+import { getJob, acquireLock, releaseLock } from '../jobs-repo';
+import { confirmStructuralOnChain } from '../chain-server';
+import { contentHash } from '../hash';
+import { checkStructural } from '../structural';
+
+export type ConfirmResult =
+  | { ok: true; txHash: string }
+  | { ok: false; skipped: string };
+
+/**
+ * Konfirmasi structural ke smart contract -- inilah yang memicu
+ * pencairan 20% dan memindahkan status ke `Verifying`.
+ *
+ * Dipanggil indexer saat event DeliverableSubmitted masuk, atau lewat
+ * POST /api/sync/:id. IDEMPOTEN: aman dipanggil berkali-kali.
+ *
+ * URUTANNYA: lock dulu, BARU periksa. Rancangan awal melakukan
+ * sebaliknya -- dan pada cabang "hash tidak cocok" ia memanggil
+ * releaseLock() padahal belum pernah memegang lock. Kalau job kebetulan
+ * sedang `running_verify`, panggilan itu akan MENIMPA state-nya jadi
+ * 'error' dan menghentikan verifikasi yang sedang berjalan.
+ */
+export async function confirmStructural(jobId: number): Promise<ConfirmResult> {
+  // Pemeriksaan murah dulu, supaya tidak mengambil lock untuk job yang
+  // jelas-jelas belum siap (indexer memanggil ini cukup sering).
+  const preview = await getJob(jobId);
+  if (preview.status !== 'Submitted') return { ok: false, skipped: `status ${preview.status}` };
+  if (!preview.deliverable_content) return { ok: false, skipped: 'menunggu konten' };
+
+  const locked = await acquireLock(jobId, ['idle', 'error'], 'running_structural');
+  if (!locked) return { ok: false, skipped: 'sedang dikerjakan proses lain' };
+
+  try {
+    // Baca ULANG di dalam lock. Yang di atas cuma saringan; kondisi bisa
+    // berubah di antara pemeriksaan dan pengambilan lock.
+    const job = await getJob(jobId);
+
+    if (job.status !== 'Submitted') {
+      await releaseLock(jobId, 'idle');
+      return { ok: false, skipped: `status berubah jadi ${job.status}` };
+    }
+
+    const content = job.deliverable_content;
+    if (!content) {
+      await releaseLock(jobId, 'idle');
+      return { ok: false, skipped: 'menunggu konten' };
+    }
+
+    // Gerbang: isi di database harus BENAR-BENAR yang di-commit on-chain.
+    // Tanpa ini, freelancer bisa menandatangani hash konten A lalu
+    // menyodorkan konten B untuk diverifikasi Oracle.
+    const computed = contentHash(content);
+    if (job.deliverable_hash && computed.toLowerCase() !== job.deliverable_hash.toLowerCase()) {
+      await releaseLock(jobId, 'error', 'Isi deliverable tidak cocok dengan hash on-chain');
+      return { ok: false, skipped: 'hash tidak cocok' };
+    }
+
+    // Periksa ulang structural juga. Route sudah menolak konten buruk,
+    // tapi baris ini menutup kemungkinan konten masuk lewat jalur lain
+    // (indexer, migrasi data, perbaikan manual di database).
+    const structural = checkStructural(content, job.brand);
+    if (!structural.pass) {
+      await releaseLock(jobId, 'error', structural.message);
+      return { ok: false, skipped: `structural gagal: ${structural.reason}` };
+    }
+
+    // Kontrak yang menghitung dan mencairkan 20%. Backend TIDAK pernah
+    // menghitung angkanya sendiri -- nilai sebenarnya masuk ke database
+    // lewat event StructuralConfirmed, dan indexer yang menuliskannya.
+    const { hash: txHash } = await confirmStructuralOnChain(BigInt(jobId));
+
+    await releaseLock(jobId, 'idle');
+    return { ok: true, txHash };
+  } catch (e) {
+    await releaseLock(jobId, 'error', e instanceof Error ? e.message : String(e));
+    throw e;
+  }
+}

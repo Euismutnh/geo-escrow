@@ -1,0 +1,252 @@
+import { db } from '../db';
+import { getJob, acquireLock, releaseLock } from '../jobs-repo';
+import { ApiError } from '../http';
+import { provider, enginesFor, textHitsBrand } from './index';
+import type { Job } from '../types';
+
+/**
+ * Berapa panggilan AI yang boleh berjalan bersamaan.
+ *
+ * Bukan angka asal. Batas atasnya: maxDuration route = 60 detik. Kasus
+ * terberat adalah 6 pertanyaan x 2 engine = 12 panggilan. Claude Opus 5
+ * dengan thinking realistis 3-6 detik per panggilan, jadi BERURUTAN
+ * butuh 36-72 detik -- yang berarti job multi-engine hampir pasti
+ * kehabisan waktu. Dengan 3 sekaligus, 12 panggilan turun ke ~20 detik.
+ *
+ * Batas bawahnya: jangan terlalu tinggi supaya tidak memicu rate limit
+ * provider. 3 adalah kompromi yang aman untuk keduanya.
+ */
+const CONCURRENCY = 3;
+
+/**
+ * Jalankan `fn` untuk tiap item, maksimal `limit` sekaligus.
+ *
+ * Error per item SENGAJA ditangkap, bukan dibiarkan melempar: kalau satu
+ * panggilan gagal di tengah, pekerja lain harus tetap selesai supaya
+ * hasilnya sempat tersimpan ke oracle_runs -- itu yang membuat percobaan
+ * berikutnya bisa melewatinya. Error pertama dilempar ulang setelah
+ * semua pekerja berhenti.
+ *
+ * Diekspor supaya bisa diuji langsung -- lihat scripts/check-oracle.ts.
+ */
+export async function mapWithLimit<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>
+): Promise<void> {
+  let cursor = 0;
+  let firstError: unknown = null;
+
+  const worker = async () => {
+    for (;;) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      try {
+        await fn(items[i]);
+      } catch (e) {
+        firstError ??= e;
+      }
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker)
+  );
+
+  if (firstError) throw firstError;
+}
+
+export interface RunPhaseOpts {
+  phase: 'baseline' | 'verification';
+  /** Indeks pertanyaan yang dikerjakan. Baseline = semua; verifikasi = subset VRF. */
+  indices: number[];
+  /** Isi deliverable -- hanya pada fase verifikasi. */
+  contextContent?: string;
+}
+
+interface Task {
+  index: number;
+  query: string;
+  engineId: string;
+}
+
+/**
+ * Ukur sitasi brand untuk sekumpulan pertanyaan.
+ *
+ * RESUMABLE: kombinasi (job, phase, query_index, engine) yang barisnya
+ * sudah ada di oracle_runs akan dilewati. Jadi kalau proses mati di
+ * tengah -- timeout serverless, provider error, jaringan putus --
+ * pemanggilan ulang melanjutkan dari yang belum selesai, bukan mengulang
+ * semuanya. Tanpa ini, tiap kegagalan membuang seluruh panggilan AI yang
+ * sudah dibayar.
+ *
+ * Mengembalikan hit per indeks pertanyaan.
+ */
+export async function runPhase(
+  job: Job,
+  opts: RunPhaseOpts
+): Promise<Map<number, boolean>> {
+  if (job.queries.length === 0) {
+    throw new ApiError('WRONG_STATUS', 'Job tidak punya pertanyaan');
+  }
+
+  // Melempar OracleError kalau multi_engine diminta tapi provider cuma
+  // punya 1 engine -- lebih baik gagal daripada diam-diam mengukur sekali
+  // lalu mencatatnya sebagai multi-engine.
+  const engines = enginesFor(job.multi_engine);
+  const p = provider();
+
+  // Baca yang sudah selesai SEKALI di awal, bukan per-panggilan.
+  const { data: existing, error: readErr } = await db()
+    .from('oracle_runs')
+    .select('query_index, engine, hit')
+    .eq('job_id', job.job_id)
+    .eq('phase', opts.phase);
+
+  if (readErr) throw new ApiError('INTERNAL', readErr.message);
+
+  const results = new Map<string, boolean>();
+  for (const r of existing ?? []) {
+    results.set(`${r.query_index}:${r.engine}`, r.hit);
+  }
+
+  // Ratakan jadi satu daftar tugas supaya bisa dijalankan berbarengan
+  // lintas pertanyaan DAN lintas engine.
+  const tasks: Task[] = [];
+  for (const index of opts.indices) {
+    const query = job.queries[index];
+    if (query === undefined) {
+      throw new ApiError('WRONG_STATUS', `Indeks pertanyaan ${index} di luar jangkauan`);
+    }
+    for (const engine of engines) {
+      if (results.has(`${index}:${engine.id}`)) continue; // sudah pernah
+      tasks.push({ index, query, engineId: engine.id });
+    }
+  }
+
+  await mapWithLimit(tasks, CONCURRENCY, async (task) => {
+    const engine = engines.find((e) => e.id === task.engineId)!;
+
+    // brand WAJIB ikut, tapi HANYA dipakai provider mock. Prompt yang
+    // dikirim ke AI sungguhan tidak pernah memuatnya -- lihat prompt.ts.
+    const res = await p.ask({
+      query: task.query,
+      engine,
+      brand: job.brand,
+      contextContent: opts.contextContent,
+    });
+
+    const hit = textHitsBrand(res.answer, job.brand);
+    results.set(`${task.index}:${task.engineId}`, hit);
+
+    // Simpan SEGERA, satu per satu. Kalau proses mati setelah baris ini,
+    // panggilan AI tadi tidak terbuang percuma.
+    //
+    // upsert + ignoreDuplicates, bukan insert: kalau lock sempat
+    // dibebaskan reclaimStaleLocks() sementara proses lama masih hidup,
+    // dua proses bisa menulis baris yang sama. Dengan insert biasa,
+    // tabrakan itu melempar error dan menggagalkan seluruh fase. Di sini
+    // baris kedua cukup diabaikan.
+    const { error: insErr } = await db()
+      .from('oracle_runs')
+      .upsert(
+        {
+          job_id: job.job_id,
+          phase: opts.phase,
+          query_index: task.index,
+          query: task.query,
+          engine: task.engineId,
+          model: res.model,
+          hit,
+          answer: res.answer,
+          latency_ms: res.latencyMs,
+        },
+        { onConflict: 'job_id,phase,query_index,engine', ignoreDuplicates: true }
+      );
+
+    if (insErr) throw new ApiError('INTERNAL', insErr.message);
+  });
+
+  // Satu pertanyaan dihitung "hit" hanya kalau LOLOS DI SEMUA engine
+  // (sama seperti prototipe). Untuk single-engine ini setara dengan
+  // hasil engine itu sendiri.
+  const perQuery = new Map<number, boolean>();
+  for (const index of opts.indices) {
+    const perEngine = engines.map((e) => results.get(`${index}:${e.id}`));
+
+    // Tidak boleh ada yang undefined di sini: semuanya sudah dijalankan
+    // atau sudah ada dari sebelumnya. Kalau ada, lebih baik gagal
+    // daripada memperlakukan "tidak diketahui" sebagai "tidak disebut".
+    if (perEngine.some((v) => v === undefined)) {
+      throw new ApiError('INTERNAL', `Hasil tidak lengkap untuk pertanyaan #${index + 1}`);
+    }
+
+    perQuery.set(index, perEngine.every(Boolean));
+  }
+
+  return perQuery;
+}
+
+export interface BaselineResult {
+  score: number;
+  of: number;
+  /** true kalau semua run diambil dari hasil sebelumnya (tidak ada panggilan AI baru). */
+  fromCache: boolean;
+}
+
+/**
+ * Ukur baseline (T0) -- berapa pertanyaan yang menyebut brand SEBELUM
+ * ada optimasi apa pun.
+ *
+ * Lock diambil secara atomik, jadi dua pemanggilan bersamaan tidak akan
+ * sama-sama jalan. Yang kedua ditolak dengan ApiError('BUSY').
+ */
+export async function runBaseline(jobId: number): Promise<BaselineResult> {
+  const locked = await acquireLock(
+    jobId,
+    ['idle', 'queued_baseline', 'error'],
+    'running_baseline'
+  );
+  if (!locked) throw new ApiError('BUSY', 'Baseline sedang berjalan untuk job ini');
+
+  try {
+    const job = await getJob(jobId);
+
+    const { count: before } = await db()
+      .from('oracle_runs')
+      .select('*', { count: 'exact', head: true })
+      .eq('job_id', jobId)
+      .eq('phase', 'baseline');
+
+    const indices = job.queries.map((_, i) => i);
+    const perQuery = await runPhase(job, { phase: 'baseline', indices });
+    const score = [...perQuery.values()].filter(Boolean).length;
+
+    const { count: after } = await db()
+      .from('oracle_runs')
+      .select('*', { count: 'exact', head: true })
+      .eq('job_id', jobId)
+      .eq('phase', 'baseline');
+
+    const { error } = await db()
+      .from('jobs')
+      .update({
+        baseline_score: score,
+        baseline_of: job.queries.length,
+        baseline_at: new Date().toISOString(),
+        job_state: 'idle',
+        last_error: null,
+      })
+      .eq('job_id', jobId);
+
+    if (error) throw new ApiError('INTERNAL', error.message);
+
+    return { score, of: job.queries.length, fromCache: (after ?? 0) === (before ?? 0) };
+  } catch (e) {
+    // Dilepas ke 'error', BUKAN 'idle' -- supaya UI bisa membedakan
+    // "gagal, silakan coba lagi" dari "belum pernah dijalankan", dan
+    // menampilkan tombol coba-lagi (lihat deriveUiStatus -> baseline_failed).
+    await releaseLock(jobId, 'error', e instanceof Error ? e.message : String(e));
+    throw e;
+  }
+}
