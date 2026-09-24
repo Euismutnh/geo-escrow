@@ -112,11 +112,34 @@ async function main() {
   }
 
   // ── 5. Penjaga private key ────────────────────────────────────────
-  // Tidak ada transaksi yang dikirim: keduanya gagal SEBELUM writeContract.
+  // Tidak ada transaksi yang dikirim: semuanya gagal SEBELUM writeContract.
+  //
+  // URUTANNYA MENGIKAT. walletClient() menyimpan klien ke cache begitu
+  // kuncinya lolos validasi bentuk, jadi kasus yang GAGAL divalidasi
+  // harus diuji lebih dulu. Kalau 5c dinaikkan ke atas, dua uji setelahnya
+  // akan memakai wallet acak dari cache dan hasilnya tidak berarti apa-apa.
   console.log('\n5. Penjaga private key (tanpa mengirim transaksi)');
   {
-    // 5a. Bentuk kunci salah. Sengaja diuji DULU -- walletClient() belum
-    //     menyimpan apa pun ke cache saat bentuknya ditolak.
+    // 5a. Kunci KOSONG -- ini persis keadaan saat deploy pertama, sebelum
+    //     siapa pun menempelkan kuncinya. Yang diuji: jalur baca tetap
+    //     hidup, dan jalur tulis gagal dengan pesan yang menyebut nama
+    //     variabelnya, bukan "execution reverted" dari EVM.
+    process.env.ORACLE_PRIVATE_KEY = '';
+
+    const bacaMasihJalan = await chain.readChainInfo();
+    cek('tanpa kunci, BACA tetap jalan', bacaMasihJalan.oracle !== null);
+
+    const errKosong = await pesanError(() =>
+      chain.settleOnChain(0n, 'release', `0x${'11'.repeat(32)}`)
+    );
+    cek('tanpa kunci, TULIS ditolak', errKosong !== null);
+    cek(
+      'pesannya menyebut ORACLE_PRIVATE_KEY',
+      (errKosong ?? '').includes('ORACLE_PRIVATE_KEY'),
+      errKosong ?? ''
+    );
+
+    // 5b. Bentuk kunci salah.
     process.env.ORACLE_PRIVATE_KEY = '0xbukankunci';
     const errBentuk = await pesanError(() =>
       chain.settleOnChain(0n, 'release', `0x${'22'.repeat(32)}`)
@@ -133,7 +156,7 @@ async function main() {
       'kunci bocor ke pesan error!'
     );
 
-    // 5b. Kunci sah, tapi bukan wallet oracle. Kunci acak sekali pakai,
+    // 5c. Kunci sah, tapi bukan wallet oracle. Kunci acak sekali pakai,
     //     tidak pernah memegang dana, tidak pernah ditulis ke mana pun.
     process.env.ORACLE_PRIVATE_KEY = generatePrivateKey();
     const errOracle = await pesanError(() =>

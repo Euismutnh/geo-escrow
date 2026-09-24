@@ -504,6 +504,32 @@ GET {{baseUrl}}/jobs?page=-5
 ### jobId bukan angka -> 400 VALIDATION
 GET {{baseUrl}}/jobs/abc
 
+# ---- jobId non-kanonik (diperketat 2026-09-24, lib/route-params.ts) ----
+# Sebelumnya semua ini DITERIMA: Number("0x10") = 16, Number("1e1") = 10,
+# Number("007") = 7 — satu job punya banyak alamat, dan id di atas 2^53
+# lolos dengan presisi hilang. Sekarang semuanya 400 VALIDATION.
+
+### heksadesimal -> 400 VALIDATION (dulu: job 16)
+GET {{baseUrl}}/jobs/0x10
+
+### notasi ilmiah -> 400 VALIDATION (dulu: job 10)
+GET {{baseUrl}}/jobs/1e1
+
+### nol di depan -> 400 VALIDATION (dulu: job 7)
+GET {{baseUrl}}/jobs/007
+
+### desimal -> 400 VALIDATION (dulu: job 1)
+GET {{baseUrl}}/jobs/1.0
+
+### di atas 2^53 - 1 -> 400 VALIDATION (dulu: dibulatkan ke ...992)
+GET {{baseUrl}}/jobs/9007199254740993
+
+### query ?jobId= ikut aturan yang sama -> 400 VALIDATION
+GET {{baseUrl}}/activity?jobId=0x10
+
+### jobId 0 tetap SAH -> 200 atau 404 NOT_FOUND, TIDAK PERNAH 400
+GET {{baseUrl}}/jobs/0
+
 ### jobId tidak ada -> 404 NOT_FOUND
 GET {{baseUrl}}/jobs/999
 
@@ -540,8 +566,53 @@ GET {{baseUrl}}/chain-info
 
 
 ###############################################################
-# 10. BELUM ADA  (menyusul di fase berikutnya)
+# 10. INDEXER + SYNC  (Fase 10)
 #
-#   POST /api/sync/:id                  Fase 10
-#   GET  /api/indexer/poll              Fase 10
+# Keduanya butuh CHAIN_ENABLED=true. Dengan false, keduanya
+# membalas 409 WRONG_STATUS -- itu memang perilaku yang benar,
+# bukan bug.
+###############################################################
+
+### sync satu job -> 200
+# Dipanggil FE tepat setelah tx dapat receipt. Tidak butuh auth:
+# endpoint ini tidak menerima data, ia cuma menyuruh backend
+# membaca ULANG dari kontrak.
+#
+# Selama jobCount() masih 0, semua jobId -> 404 NOT_FOUND.
+# Itu jawaban yang benar: job-nya memang belum ada di blockchain.
+POST {{baseUrl}}/sync/0
+
+### job id tidak valid -> 400 VALIDATION
+POST {{baseUrl}}/sync/abc
+
+### rate limit per-job: tembak 2x cepat -> yang kedua 429
+# Jalankan blok di atas, lalu blok ini dalam < 2 detik.
+POST {{baseUrl}}/sync/0
+
+###############################################################
+# 10b. POLL  (cron -- TERTUTUP di balik CRON_SECRET)
+###############################################################
+
+### tanpa Authorization -> 400 "Tidak berwenang"
+GET {{baseUrl}}/indexer/poll
+
+### secret salah -> 400 "Tidak berwenang"
+# Pesannya sengaja sama dengan di atas: jangan beri tahu penyerang
+# apakah header-nya yang salah bentuk atau secretnya yang keliru.
+GET {{baseUrl}}/indexer/poll
+Authorization: Bearer secret-yang-salah
+
+### dengan secret benar -> 200
+# Balasannya menyebut dariBlok, sampaiBlok, tipRantai, dan
+# blokDilompati. Yang terakhir > 0 berarti ada rentang yang log-nya
+# sudah dipangkas RPC dan TIDAK akan pernah masuk ledger -- lihat
+# blueprint 10.2a. Itu muncul sekali, lalu 0 di putaran berikutnya.
+GET {{baseUrl}}/indexer/poll
+Authorization: Bearer {{cronSecret}}
+
+
+###############################################################
+# 11. BELUM ADA  (menyusul di fase berikutnya)
+#
+#   proxy.ts (CORS + rate limit global)   Fase 11
 ###############################################################

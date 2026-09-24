@@ -2261,7 +2261,7 @@ Dua jalur, sengaja:
 | 2 | **`seed` dari event dibuang** | fungsionalitas | disimpan ke `verification_seed` |
 | 3 | **`StructuralRejected` tidak ditangani** | fungsionalitas | job dikembalikan ke `Accepted` |
 | 4 | **`BondSettled` tidak ditangani** | fungsionalitas | baris `bond_return` / `bond_slash` |
-| 5 | **Indexer mulai dari blok 0** | performa | disemai dari blok deploy |
+| 5 | **Indexer mulai dari blok 0** | performa | disemai dari blok deploy — tapi lihat §10.2a: RPC memangkas log, jadi bookmark juga diklem otomatis |
 | 6 | `syncJob` menyaring di sisi klien | performa | pakai filter topic `jobId` |
 | 7 | `jobId ?? 0` — job 0 itu sah | fungsionalitas | sentinel `-1`, bukan `0` |
 | 8 | `applyLog(log: any)` | kualitas | tipe diturunkan dari ABI |
@@ -2348,19 +2348,21 @@ const logs = await getContractEvents({ fromBlock: latest - 5000n, toBlock: lates
 for (const log of logs) { if (log.args.jobId !== jobId) continue; ... }
 ```
 
-Dua masalah: boros (mengunduh event job lain), dan **5.000 blok di BSC hanya sekitar 4 jam** — job yang dibuat kemarin tidak akan pernah tersinkron.
+Dua masalah: boros (mengunduh event job lain), dan **5.000 blok di BSC Testnet cuma 38 menit** — job yang dibuat pagi ini pun sudah di luar jangkauan sore harinya. (Angka ini terukur, bukan perkiraan; lihat §10.2a.)
 
-`jobId` bertanda `indexed` di semua event job, jadi bisa disaring di sisi RPC lewat topic — dan rentangnya boleh dari blok deploy karena hasilnya sudah tersaring:
+`jobId` bertanda `indexed` di semua event job, jadi bisa disaring di sisi RPC lewat topic:
 
 ```ts
 const logs = await publicClient().getContractEvents({
   address: escrowAddress(),
   abi: geoEscrowAbi,
   args: { jobId: BigInt(jobId) },   // ← filter topic, dikerjakan RPC
-  fromBlock: DEPLOY_BLOCK,
-  toBlock: 'latest',
+  fromBlock: tip - SYNC_LOOKBACK,   // BUKAN dari blok deploy -- lihat §10.2a
+  toBlock: tip,
 });
 ```
+
+> **Rentangnya tetap harus dibatasi.** Rancangan awal menyarankan dari blok deploy sampai `latest` dengan alasan "hasilnya sudah tersaring topic". RPC menolak permintaannya jauh sebelum penyaringan itu terjadi — dan bahkan kalau tidak, node-nya sudah tidak menyimpan log setua itu. Dua batas keras di §10.2a.
 
 #### 7. `jobId ?? 0` — job 0 itu job yang sah
 
@@ -2381,6 +2383,104 @@ const jobId = Number(raw);
 #### 8. Log bertipe, bukan `any`
 
 Dengan ABI sungguhan, viem bisa menurunkan tipe tiap event — `log.args.freelancer` pada `StructuralConfirmed` akan **ditolak compiler**, bukan diam-diam `undefined` seperti temuan #1.
+
+### 10.2a Fakta jaringan — diukur 23 Sep 2026, bukan diasumsikan
+
+Rancangan awal memakai angka BSC Mainnet (3 detik per blok). **Testnet jauh lebih cepat**, dan selisihnya cukup besar untuk membuat beberapa keputusan di atas salah.
+
+| | Terukur | Cara mengukurnya |
+|---|---|---|
+| Waktu blok | **0,45 detik** | selisih `timestamp` antara dua blok berjarak 10.000 |
+| Blok per hari | ~192.000 | turunan dari angka di atas |
+| Blok deploy 130.726.113 | 13 Sep 2026, 04:23 UTC | `getBlock().timestamp` — cocok dengan catatan serah terima |
+| Tertinggal dari blok deploy | ~1,9 juta blok (10 hari) | per 23 Sep 2026 |
+
+**Konsekuensi untuk ukuran chunk.** Dengan 2.000 blok per putaran, satu putaran cuma mencakup **15 menit** waktu rantai — dan mengejar ketertinggalan dari blok deploy butuh **951 permintaan RPC**. Itu tidak muat di satu invocation serverless.
+
+RPC-nya sendiri jauh lebih longgar dari dugaan. Diuji langsung ke `bsc-testnet-rpc.publicnode.com`:
+
+```
+eth_getLogs    500 blok  ->  ok  (184ms)
+             1.000 blok  ->  ok  (144ms)
+             5.000 blok  ->  ok  (148ms)
+            50.000 blok  ->  ok  (257ms)
+```
+
+Waktunya nyaris tidak bergerak — yang dibatasi jumlah *log* yang cocok, bukan lebar rentangnya, dan kontrak ini masih sepi. Jadi:
+
+> **Pakai 20.000 blok per putaran, bukan 2.000.** Mengejar ketertinggalan jadi 96 permintaan (~20 detik) alih-alih 951. Angka 20.000 dipilih dengan sisa ruang: 50.000 sudah terbukti jalan, jadi 20.000 tidak akan mepet bahkan kalau lalu lintasnya naik. Tetap potong per putaran — jangan sekali tembak dari blok deploy sampai tip, karena begitu kontraknya ramai, batas jumlah log yang akan kena, dan kegagalannya tidak kelihatan sampai saat itu.
+
+**Cadangan RPC tidak bisa dipakai indexer.** `bsc-testnet.drpc.org` yang tertulis sebagai cadangan di `.env.local` menjawab `eth_blockNumber` dengan benar, tapi **menolak setiap `eth_getLogs`** — berapa pun lebar rentangnya. Jadi ia sah sebagai cadangan untuk pembacaan biasa (Fase 9), tapi kalau indexer dialihkan ke sana saat publicnode bermasalah, ia akan gagal diam-diam tanpa satu event pun masuk. Catat ini di `.env.local` supaya tidak ada yang menukarnya saat panik.
+
+#### Dua batas keras RPC — keduanya ketahuan saat menjalankan uji
+
+Ini bagian terpenting Fase 10, dan tidak satu pun tertulis di dokumentasi RPC-nya.
+
+**Batas 1 — rentang `eth_getLogs` maksimal 50.000 blok.**
+
+```
+Details: exceed maximum block range: 50000
+```
+
+Filter topic **tidak** membebaskan batas ini: RPC menolak permintaannya sebelum penyaringan dimulai. Karena itu `CHUNK_BLOCKS = 20.000` (sisa ruang dari batas), dan ada penjaga di `runIndexer()` yang melempar kalau konstanta itu sampai dinaikkan melewati batas — supaya kegagalannya jelas, bukan `-32701` yang membingungkan.
+
+**Batas 2 — log hanya disimpan ~90.000 blok terakhir (~11 jam).**
+
+```
+Details: History has been pruned for this block.
+```
+
+Ini yang mengubah rancangan. Kontrak di-deploy **1,9 juta blok** sebelum hari ini. Artinya menyusul dari blok deploy bukan "lambat" — melainkan **mustahil**: node-nya sudah tidak punya datanya, dan setiap rentang yang lebih tua ditolak.
+
+Bookmark yang disemai di blok 130.726.112 karena itu akan membuat **setiap** putaran gagal di rentang pertama, selamanya, tanpa maju satu blok pun. `runIndexer()` menanganinya dengan melompat ke horizon pemangkasan, menyimpan bookmark baru, dan **melaporkan lompatannya di respons** (`blokDilompati`) — bukan menelannya diam-diam:
+
+```
+[indexer] bookmark 130726112 lebih tua dari log yang masih disimpan RPC
+(tertua ~132550438). 1824325 blok DILOMPATI — event di rentang itu tidak
+akan pernah masuk ledger. Status job tidak terpengaruh (diambil dari getJob).
+```
+
+**Apa yang benar-benar hilang, dan apa yang tidak:**
+
+| | Terpengaruh pemangkasan? |
+|---|---|
+| Status job, budget, bond, seed, hash | **Tidak.** Semuanya dari `getJob()` — membaca storage saat ini, bukan log |
+| Baris `activity` (halaman Aktivitas) | **Ya.** Hanya bisa memuat event ~11 jam terakhir |
+
+Untuk hackathon ini tidak ada yang hilang — `jobCount()` masih 0, jadi belum ada satu pun event di rentang yang dilompati. Tapi kalau ledger harus lengkap sejak job pertama, RPC-nya harus diganti yang **arsip** (Alchemy, QuickNode, dan Ankr punya tier gratis dengan akses arsip). Itu satu-satunya obatnya; tidak ada trik di sisi kode.
+
+**RPC lain yang sudah dicoba (23 Sep 2026):**
+
+| Endpoint | Hasil |
+|---|---|
+| `bsc-testnet-rpc.publicnode.com` | **dipakai** — `eth_getLogs` jalan, retensi ~90.000 blok |
+| `bsc-testnet.drpc.org` | `eth_blockNumber` jalan, **`eth_getLogs` selalu ditolak** |
+| `bsc-testnet.public.blastapi.io` | tidak menjawab |
+| `data-seed-prebsc-2-s1.bnbchain.org` | `eth_getLogs` ditolak |
+| `bsc-testnet.blockpi.network` | tidak menjawab |
+
+#### Kenapa `jobs` tidak lagi ditambal dari event
+
+Rancangan awal menambal kolom `jobs` dari argumen tiap event. Itu rapuh di dua titik yang sama-sama tidak bersuara:
+
+- **Log yang diproses dua kali** — retry, sync manual bertabrakan dengan cron, bookmark yang mundur — akan **menurunkan** status job yang sudah maju. `DeliverableSubmitted` yang terbaca ulang mengembalikan job dari `Verifying` ke `Submitted`.
+- **Satu event terlewat** (pemangkasan di atas, persis) membuat statusnya macet, dan tidak ada yang tahu.
+
+Di implementasi ini, event hanya mengisi **ledger**; kolom `jobs` selalu disegarkan dari `getJob()`:
+
+```ts
+const onChain = await readJobFromChain(BigInt(jobId));
+await segarkanJob(jobId, onChain);   // status, budget, bond, seed, hash -- semua sekaligus
+```
+
+Satu panggilan RPC, dan hasilnya benar tanpa peduli urutan log, berapa kali diproses, atau berapa banyak yang hilang. Ini juga yang membuat `syncJob` tetap benar walau jendela log-nya cuma 45.000 blok.
+
+Baris `activity` sendiri kebal-ganda lewat `unique (tx_hash, log_index)` + `ignoreDuplicates` — jadi sync manual boleh bertabrakan dengan cron tanpa menghasilkan ledger ganda.
+
+#### Jarak aman dari ujung rantai
+
+`runIndexer()` berhenti 15 blok sebelum ujung. Blok paling ujung masih bisa tergeser reorg, dan bookmark yang terlanjur melewatinya membuat event di blok itu **tidak akan pernah dibaca ulang**. Pada 0,45 detik/blok itu cuma ~7 detik keterlambatan — dan `syncJob` tetap membaca sampai `latest`, jadi demo tidak ikut melambat.
+
 
 ### 10.3 Dua hal yang sudah diputuskan — jalankan `supabase/migration-01-*.sql`
 
@@ -2435,9 +2535,27 @@ if ((data ?? []).length === 0) {
 
 `app/api/sync/[id]/route.ts` dan `app/api/indexer/poll/route.ts` — pakai `parseJobId()` dan `verifyCronSecret()` (keduanya dari Fase 5/6), bukan `Number(id)` dan perbandingan string mentah.
 
+**Kenapa yang satu terbuka dan yang satu tertutup.**
+
+| | `POST /api/sync/:id` | `GET /api/indexer/poll` |
+|---|---|---|
+| Auth | **tidak ada** | `CRON_SECRET` |
+| Cakupan | satu job, satu jendela log | ribuan blok sekali panggil |
+| Rate limit | per-job 2 dtk + global 300 ms | — (sudah tertutup auth) |
+
+`sync` sengaja terbuka: ia **tidak menerima data apa pun**, cuma menyuruh backend membaca ulang dari kontrak — dan kontraknya yang jadi sumber kebenaran. Hal terburuk yang bisa dilakukan penyerang adalah memaksa kita menembak RPC, dan itulah yang ditahan dua lapis rate limit. Lapis per-job dibuat longgar (2 detik) karena satu alur normal menghasilkan beberapa panggilan beruntun yang semuanya sah; lapis global menangkap penyapuan banyak `jobId` sekaligus, yang lapis per-job tidak bisa lihat.
+
+`poll` harus tertutup karena cakupannya ribuan blok. `verifyCronSecret()` menolak kalau `CRON_SECRET` kosong — jadi lupa mengisinya saat deploy berarti endpoint **tertutup rapat**, bukan terbuka untuk semua orang.
+
+**`confirmStructural` dipicu dari `sync`, lewat `after()`.** Deliverable yang baru masuk butuh konfirmasi ke kontrak — itu yang mencairkan 20%. Dijalankan setelah respons terkirim karena ia mengirim transaksi dan menunggu receipt, dan user tidak perlu menatap spinner untuk itu.
+
+> Memicu transaksi dari endpoint terbuka terdengar berbahaya, tapi batasnya ada di kontrak, bukan di pemanggil: `confirmStructural` hanya jalan saat status `Submitted`, dan begitu jalan statusnya pindah ke `Verifying`. Panggilan berikutnya tidak menghasilkan transaksi apa pun. Paling banyak **satu transaksi per job**, berapa kali pun endpoint-nya ditembak.
+
+`poll` sekalian memanggil `reclaimStaleLocks()`. Cron adalah satu-satunya hal yang jalan tanpa diminta, jadi di situlah tempatnya: job yang tertinggal di `running_*` karena proses mati di tengah akan menggantung selamanya kalau tidak ada yang memungutnya.
+
 ### 10.6 Menjadwalkan cron
 
-`vercel.json`:
+`vercel.json` — **sudah ada di repo**, tinggal dipakai saat deploy:
 
 ```json
 { "crons": [{ "path": "/api/indexer/poll", "schedule": "*/5 * * * *" }] }
@@ -2461,6 +2579,8 @@ if ((data ?? []).length === 0) {
 
 **Selesai kalau:** kirim `createJob` dari wallet → panggil `POST /api/sync/0` → job muncul di DB dengan status & budget yang benar, dan satu baris `deposit` di `activity`.
 
+> Baris `deposit` itu muncul karena transaksinya **baru saja** dibuat, jadi log-nya masih ada di jendela 45.000 blok yang dibaca `syncJob`. Kalau kamu menguji job yang dibuat lebih dari ~11 jam lalu, statusnya akan tetap benar tapi baris ledger-nya tidak akan ada — itu pemangkasan RPC (§10.2a), bukan bug.
+
 > **Sebelum menyalakan `CHAIN_ENABLED=true` dengan serius:** hapus data seed. Seed memakai `job_id` 1–6, dan job on-chain sungguhan mulai dari 0 — keduanya akan bertabrakan.
 
 
@@ -2468,47 +2588,126 @@ if ((data ?? []).length === 0) {
 
 ## FASE 11 — Pengerasan (≈2 jam)
 
-### 11.1 CORS & rate limit global — `proxy.ts` di root
+### 11.1 Header keamanan — `next.config.ts`, BUKAN `proxy.ts`
 
-> `middleware.ts` **deprecated** di Next.js 16, diganti `proxy.ts`. Nama file dan nama export sama-sama berubah.
+Rancangan awal menaruh semuanya di `proxy.ts`. Setelah membaca dokumentasi Next.js 16 yang terpasang (`node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/proxy.md`), pembagiannya diubah:
+
+| Yang dipasang | Di mana | Kenapa |
+|---|---|---|
+| nosniff, Referrer-Policy, X-Frame-Options, Permissions-Policy, HSTS | `next.config.ts` | statis, tidak membaca request |
+| `Cache-Control: no-store` untuk `/api` | `next.config.ts` | statis |
+| CSP untuk `/api` | `next.config.ts` | statis |
+| CORS | `proxy.ts` | **butuh** header `Origin` dari request |
+| ~~Rate limit global~~ | **tidak ada** | lihat di bawah |
+
+Tiga alasan header statis tidak berada di proxy:
+
+1. **Urutan eksekusi.** `headers` dari `next.config` berjalan pada langkah 1, proxy baru pada langkah 3. Header di `next.config` tidak bisa terlewat gara-gara matcher yang keliru.
+2. Dokumentasinya sendiri: *"Proxy should be used when you need access to request data or more complex logic."* Tidak satu pun header ini membaca request.
+3. Berlaku untuk **semua** respons termasuk aset statis, tanpa membuat proxy ikut jalan di tiap permintaan gambar dan CSS.
+
+#### Rate limit global di proxy: dihapus, bukan ditunda
+
+Dokumentasi Next.js menyebutnya eksplisit:
+
+> *"Proxy is meant to be invoked separately of your render code and in optimized cases deployed to your CDN [...] **you should not attempt relying on shared modules or globals**."*
+
+`lib/rate-limit.ts` menyimpan hitungannya di `Map` tingkat-modul. Di proxy, `Map` itu **bukan** `Map` yang sama dengan milik route handler, dan bisa berbeda per node CDN. Hasilnya bukan rate limit — hanya rasa aman yang palsu, yang justru lebih berbahaya daripada tidak ada sama sekali karena orang berhenti mencari perlindungan yang sungguhan.
+
+Pembatasan yang nyata tetap di route masing-masing (`POST /api/jobs` Fase 6, `POST /api/sync/:id` Fase 10), dan pertahanan sebenarnya untuk pekerjaan Oracle adalah **lock atomik di database** — satu-satunya yang berlaku lintas instance.
+
+#### Dua header yang paling mudah terlewat
+
+**`Cache-Control: no-store` untuk `/api`.** Ini baris terpenting di `next.config.ts`. `GET /api/jobs?wallet=0x…` mengembalikan data berbeda per wallet; kalau CDN sempat menyimpannya, wallet berikutnya bisa menerima jawaban milik orang lain. Tidak ada satu pun respons API di proyek ini yang layak di-cache.
+
+**HSTS hanya di produksi.** Kalau ikut terpasang saat pengembangan, browser mengingat "localhost wajib HTTPS" selama dua tahun — dan dev server yang HTTP tidak bisa dibuka lagi sampai dibersihkan manual lewat `chrome://net-internals/#hsts`. Kegagalan yang sangat membingungkan karena tidak ada yang berubah di kode.
+
+#### CORS: default menolak semua
 
 ```ts
-// proxy.ts (root project, sejajar dengan app/)
-import { NextResponse, type NextRequest } from 'next/server';
-
-export function proxy(req: NextRequest) {
-  const res = NextResponse.next();
-  res.headers.set('X-Content-Type-Options', 'nosniff');
-  res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  return res;
+// proxy.ts
+function originYangDiizinkan(): string[] {
+  return (process.env.ALLOWED_ORIGINS ?? '').split(',').map(s => s.trim()).filter(Boolean);
 }
-
-export const config = { matcher: '/api/:path*' };
 ```
 
-### 11.2 Checklist keamanan sebelum deploy
+Kosong = tidak ada origin yang diizinkan, dan **itu default yang benar**: frontend disajikan Next.js yang sama dengan API-nya, jadi permintaannya same-origin dan tidak pernah melewati CORS sama sekali. Header izin tanpa kebutuhan hanya memperluas permukaan serangan. Isi hanya kalau FE benar-benar dideploy terpisah.
 
-- [ ] `.env.local` tidak ter-commit (`git status` bersih)
-- [ ] Tidak ada `NEXT_PUBLIC_` pada `SERVICE_ROLE_KEY`, `ORACLE_PRIVATE_KEY`, atau API key AI
-- [ ] `anon key` tidak dipakai di mana pun (kita memilih polling, bukan Realtime — §3.3).
-      **Kalau suatu saat dipakai, RLS WAJIB dinyalakan lebih dulu**
-- [ ] `CHAIN_ENABLED=true` — tanpa itu gerbang hash mati dan `POST /api/jobs`
-      serta `/deliverable` menolak jalan di produksi (interlock Fase 6 & 7)
-- [ ] Data seed sudah dihapus — `job_id` 1–6 bentrok dengan job on-chain
-      yang mulai dari 0
-- [ ] Wallet Oracle hanya diisi tBNB secukupnya untuk gas — **jangan** pakai wallet pribadi
-- [ ] `CRON_SECRET` acak dan panjang
-- [ ] Semua route memakai `handler()` (pesan error internal tidak bocor)
-- [ ] `POST /api/dev/seed` menolak jalan saat `NODE_ENV=production`
+Dua detail yang gampang salah:
+
+- **Preflight harus dijawab tuntas di proxy.** Kalau `OPTIONS` diteruskan ke route, handler kita tidak punya export `OPTIONS` → browser menerima 405 dan membatalkan permintaan aslinya.
+- **`Vary: Origin` wajib** setiap kali `Access-Control-Allow-Origin` dipasang. Tanpa itu, cache bisa menyodorkan izin milik origin lain.
+
+#### Verifikasi — header benar-benar terkirim
+
+Diuji terhadap server hidup, bukan dibaca dari konfigurasi:
+
+```
+/api/hello      X-Content-Type-Options: nosniff
+                Referrer-Policy: strict-origin-when-cross-origin
+                X-Frame-Options: SAMEORIGIN
+                Permissions-Policy: camera=(), microphone=(), …
+                Cache-Control: no-store, max-age=0
+                Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; sandbox
+/               (empat header pertama, tanpa CSP/no-store)
+X-Powered-By    tidak ada  (poweredByHeader: false)
+Strict-Transport-Security  tidak ada di dev — benar, produksi saja
+```
+
+CORS, enam kasus:
+
+| Kasus | Hasil |
+|---|---|
+| tanpa `Origin` (same-origin) | 0 header CORS |
+| `Origin` asing, `ALLOWED_ORIGINS` kosong | tidak ada `Allow-Origin` |
+| preflight `OPTIONS` dari origin asing | 204, tanpa `Allow-Origin` |
+| `Origin` terdaftar | `Allow-Origin` + `Vary: Origin` |
+| preflight dari origin terdaftar | `Allow-Methods`, `Allow-Headers`, `Max-Age: 86400` |
+| origin asing saat daftar terisi | tetap ditolak |
+
+> **CSP untuk HALAMAN sengaja belum dipasang.** CSP yang ketat butuh nonce per-request, dan memasangnya sebelum frontend ada hampir pasti akan memblokir skrip wagmi/RainbowKit dengan pesan yang sulit dilacak. Kerjakan saat halamannya sudah jadi, pakai `node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md`.
+
+### 11.2 Audit keamanan — checklist yang BERJALAN
+
+```bash
+npm run check:security
+```
+
+Checklist yang dicentang manusia akan dicentang tanpa dibaca, cepat atau lambat. `scripts/check-security.ts` memeriksanya dengan mesin — **20 pemeriksaan**, dan yang tidak bisa diperiksa mesin disebut terang-terangan di bagian akhir supaya tidak menyamar jadi "aman".
+
+Tidak ada nilai rahasia yang dicetak skrip ini — hanya ada/tidaknya, panjangnya, atau bentuknya. Keluarannya aman ditempel ke chat tim.
+
+| # | Yang diperiksa |
+|---|---|
+| 1 | Tidak ada rahasia berawalan `NEXT_PUBLIC_` — di env **dan** di source code |
+| 1b | anon key kosong & tidak dirujuk kode — konsisten dengan keputusan polling (§3.3) |
+| 2 | Tidak ada private key ber-nilai di file yang dilacak git |
+| 3 | Semua route memakai `handler()` (pesan error internal tidak bocor) |
+| 4 | `POST /api/dev/seed` menolak jalan di produksi |
+| 5 | `CRON_SECRET` terisi, bukan nilai contoh, panjang ≥ 24 |
+| 6 | Tidak ada `Number()` pada nilai wei |
+| 7 | Data seed tidak memakai `jobId` yang bentrok dengan on-chain |
+| 8 | Konfigurasi rantai: bentuk private key, RPC bukan drpc, alamat terisi |
+| 9 | Header keamanan ada di konfigurasi, `proxy.ts` ada |
+
+Bedanya **GAGAL** dan **!** disengaja: `GAGAL` berarti ada yang salah dan skrip keluar dengan kode 1; `!` berarti keadaan yang sah selama pengembangan tapi harus beres sebelum deploy (`CHAIN_ENABLED` masih false, kunci belum diisi, seed masih ada).
+
+> **Satu pelajaran dari menulis skrip ini.** Versi pertama pemeriksaan #2 mencari pola `0x` + 64 hex di mana saja — dan langsung menuduh dua berkas yang tidak bersalah. Hash verdict, `queryPoolHash`, dan seed VRF semuanya `bytes32`: **bentuknya identik dengan private key**. Pemeriksaan yang berteriak untuk hal normal akan diabaikan orang, dan kebocoran sungguhan ikut terlewat bersamanya. Versi sekarang menuntut nama yang berbau kunci **dan** nilai 64-hex di baris yang sama — diuji dengan 3 kebocoran palsu (semua tertangkap) dan 5 nilai `bytes32` yang sah (semua diabaikan).
+
+#### Yang tetap manual
+
+- Saldo tBNB wallet oracle > 0 — **per 23 Sep 2026 masih 0**
+- Env var sudah diisi di panel hosting, bukan cuma di `.env.local`
+- Header benar-benar terkirim setelah deploy: `curl -sI https://<app>/api/stats`
+- Putaran pertama `/api/indexer/poll`: `blokDilompati` harus jadi `0` di putaran kedua
+
+> **Deploy tanpa `ORACLE_PRIVATE_KEY` tidak merusak apa pun, tapi uang tidak akan bergerak.** Verifikasi tetap berjalan sampai selesai — verdict tersimpan, skor dihitung — lalu settlement gagal dan job berhenti di `job_state='error'`. Begitu kuncinya ditempel, percobaan ulang **hanya** mengirim transaksinya: verdict yang sama dipakai lagi, hash-nya identik, dan **tidak ada satu pun panggilan AI baru** (urutan simpan-dulu-baru-kirim di §8.1). Aman untuk demo bertahap — tapi jangan demo pencairan otomatis sebelum kuncinya masuk.
 
 ### 11.3 Dokumentasi API
 
-Untuk hackathon, tabel di Bagian 5 sudah lebih berguna daripada Swagger. Kalau tetap ingin halaman interaktif, kerjakan **paling akhir** — bentuk endpoint baru stabil setelah Fase 10, dan dokumentasi yang dibuat lebih awal hanya akan keteteran diperbarui.
+`api.http` sudah memuat **seluruh** endpoint dengan hasil yang diharapkan tertulis di tiap blok, dan tabel di Bagian 5 lebih berguna daripada Swagger untuk tim tiga orang. Swagger **tidak dikerjakan**, dan itu keputusan — bukan hal yang tertunda.
 
-```bash
-npm install next-swagger-doc swagger-ui-react
-npm install -D @types/swagger-ui-react
-```
+Alasannya: `next-swagger-doc` menuntut anotasi JSDoc di tiap route yang harus diperbarui manual setiap bentuk respons berubah. Dokumentasi yang bisa basi diam-diam lebih buruk daripada tidak ada, karena orang memercayainya. `api.http` tidak bisa basi diam-diam — ia dijalankan, dan langsung kelihatan kalau jawabannya berubah.
 
 ---
 
@@ -2564,24 +2763,29 @@ npm install -D @types/swagger-ui-react
 | 8 | Verifikasi + verdict | 3 jam | — |
 | — | **← FE bisa dibangun penuh sampai sini** | | |
 | 9 | Chain: baca + jalur tulis | 2 jam | **Ya** — ✅ kode selesai |
-| 10 | Indexer + sync | 3 jam | **Ya** |
-| 11 | Pengerasan + dokumentasi | 2 jam | — |
+| 10 | Indexer + sync | 3 jam | **Ya** — ✅ kode selesai |
+| 11 | Pengerasan + dokumentasi | 2 jam | — ✅ kode selesai |
 
 **Total ≈ 25 jam kerja efektif.** Fase 0–8 (≈18 jam) tidak bergantung pada tim blockchain sama sekali — kerjakan itu dulu tanpa menunggu siapa pun.
 
-**Status per 19 Sep 2026:** Fase 0–9 selesai dan teruji. Yang menahan Fase 9 dari benar-benar memindahkan dana bukan kodenya, melainkan dua hal di luar backend:
+**Status per 23 Sep 2026:** Fase 0–11 selesai dan teruji. Seluruh backend rampung.
+
+Yang menahan backend dari benar-benar jalan penuh bukan kodenya, melainkan hal-hal di luar backend — jalankan `npm run check:security` untuk melihat mana yang masih merah:
 
 1. `ORACLE_PRIVATE_KEY` untuk `0xa3291638aeE37B076E7CA389C3fd28d5B73a4791` — diserahkan lewat password manager terenkripsi, **tidak pernah lewat chat atau email**. Alternatifnya: owner memanggil `setOracle()` dengan wallet baru yang kuncinya kita pegang.
 2. Minimal satu `createJob()` on-chain. `jobCount()` masih 0, jadi belum ada apa pun untuk dibaca atau di-settle.
 
-Selama keduanya belum ada, `CHAIN_ENABLED` tetap `false` dan seluruh backend jalan seperti Fase 0–8.
+3. **RPC arsip**, kalau ledger `activity` harus lengkap sejak job pertama. RPC publik memangkas log di ~90.000 blok (~11 jam) — lihat §10.2a. Ini TIDAK menghalangi demo: status dan nilai uang tiap job datang dari `getJob()`, bukan dari log.
+
+Selama (1) dan (2) belum ada, `CHAIN_ENABLED` tetap `false` dan seluruh backend jalan seperti Fase 0–8.
 
 ## Urutan uji tiap selesai fase
 
 Semua uji unit sekaligus (tanpa server, tanpa database):
 
 ```bash
-npm run check      # 3 berkas, semuanya harus gagal: 0
+npm run check           # 3 berkas, semuanya harus gagal: 0
+npm run check:security  # audit pra-deploy, 20 pemeriksaan
 npx tsc --noEmit
 npm run lint
 ```
@@ -2593,7 +2797,8 @@ tidak perlu menyalakan dev server (Turbopack butuh ratusan MB):
 npx tsx scripts/dev-structural.ts      # Fase 7
 npx tsx scripts/dev-verify.ts          # Fase 8
 npx tsx scripts/dev-chain-check.ts     # Fase 9 -- ABI vs kontrak hidup   (11)
-npx tsx scripts/dev-chain-read.ts      # Fase 9 -- logika pembungkus      (17)
+npx tsx scripts/dev-chain-read.ts      # Fase 9 -- logika pembungkus      (20)
+npx tsx scripts/dev-indexer.ts         # Fase 10 -- pemetaan + penyusuran (37)
 npx tsx scripts/dev-migration-check.ts # migrasi 01 benar-benar mendarat   (9)
 ```
 

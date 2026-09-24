@@ -2,6 +2,7 @@ import { db } from '../db';
 import { getJob, acquireLock, releaseLock } from '../jobs-repo';
 import { ApiError } from '../http';
 import { provider, enginesFor, textHitsBrand } from './index';
+import { hitPerQuery, type RunHit } from '../scoring';
 import type { Job } from '../types';
 
 /**
@@ -106,8 +107,11 @@ export async function runPhase(
   if (readErr) throw new ApiError('INTERNAL', readErr.message);
 
   const results = new Map<string, boolean>();
+  // Daftar datar semua hasil — bahan untuk hitPerQuery() di akhir.
+  const collected: RunHit[] = [];
   for (const r of existing ?? []) {
     results.set(`${r.query_index}:${r.engine}`, r.hit);
+    collected.push({ query_index: r.query_index, engine: r.engine, hit: r.hit });
   }
 
   // Ratakan jadi satu daftar tugas supaya bisa dijalankan berbarengan
@@ -138,6 +142,7 @@ export async function runPhase(
 
     const hit = textHitsBrand(res.answer, job.brand);
     results.set(`${task.index}:${task.engineId}`, hit);
+    collected.push({ query_index: task.index, engine: task.engineId, hit });
 
     // Simpan SEGERA, satu per satu. Kalau proses mati setelah baris ini,
     // panggilan AI tadi tidak terbuang percuma.
@@ -167,21 +172,23 @@ export async function runPhase(
     if (insErr) throw new ApiError('INTERNAL', insErr.message);
   });
 
-  // Satu pertanyaan dihitung "hit" hanya kalau LOLOS DI SEMUA engine
-  // (sama seperti prototipe). Untuk single-engine ini setara dengan
-  // hasil engine itu sendiri.
+  // Aturan gabungnya ("hit hanya kalau lolos di SEMUA engine") tinggal di
+  // lib/scoring.ts — dipakai bersama radar sitasi di frontend, supaya angka
+  // di layar tidak bisa berbeda dari skor verdict.
+  const combined = hitPerQuery(collected, engines.map((e) => e.id));
+
   const perQuery = new Map<number, boolean>();
   for (const index of opts.indices) {
-    const perEngine = engines.map((e) => results.get(`${index}:${e.id}`));
+    const hit = combined.get(index);
 
-    // Tidak boleh ada yang undefined di sini: semuanya sudah dijalankan
-    // atau sudah ada dari sebelumnya. Kalau ada, lebih baik gagal
-    // daripada memperlakukan "tidak diketahui" sebagai "tidak disebut".
-    if (perEngine.some((v) => v === undefined)) {
+    // Tidak boleh undefined di sini: semuanya sudah dijalankan atau sudah
+    // ada dari sebelumnya. Kalau ada, lebih baik gagal daripada
+    // memperlakukan "tidak diketahui" sebagai "tidak disebut".
+    if (hit === undefined) {
       throw new ApiError('INTERNAL', `Hasil tidak lengkap untuk pertanyaan #${index + 1}`);
     }
 
-    perQuery.set(index, perEngine.every(Boolean));
+    perQuery.set(index, hit);
   }
 
   return perQuery;

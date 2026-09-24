@@ -112,10 +112,16 @@ async function main() {
       // last_block_processed adalah bigint -> PostgREST bisa
       // mengirimnya sebagai number ATAU string tergantung besarnya.
       const blok = Number(data.last_block_processed);
+      // Nilai semainya 130.726.112, tapi bookmark ini MEMANG bergerak maju
+      // setiap runIndexer() jalan -- dan di putaran pertama ia melompat
+      // jauh ke horizon pemangkasan RPC (lihat blueprint 10.2a). Jadi yang
+      // diuji bukan angka persisnya, melainkan bahwa ia tidak pernah
+      // kembali ke 0: itu satu-satunya nilai yang berarti "menyisir dari
+      // awal rantai", dan itu yang bikin ribuan permintaan RPC sia-sia.
       cek(
-        `mulai dari blok ${blok.toLocaleString('id-ID')} (bukan 0)`,
-        blok === 130726112,
-        `dapat ${blok}`
+        `bookmark di blok ${blok.toLocaleString('id-ID')} (bukan 0)`,
+        blok >= 130726112,
+        `dapat ${blok}, lebih tua dari blok semai`
       );
     }
   }

@@ -31,7 +31,11 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # env files (can opt-in for committing if needed)
+# `.env*` WAJIB ada: `*.env` saja TIDAK menangkap `.env.local`, yang berisi
+# ORACLE_PRIVATE_KEY dan SUPABASE_SERVICE_ROLE_KEY.
 .env*
+*.env
+!.env.example
 
 # vercel
 .vercel

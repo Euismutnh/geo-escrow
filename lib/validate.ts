@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ApiError } from './http';
+import { parseJobIdParam } from './route-params';
 
 /** Alamat EVM: 0x + 40 hex. Disimpan & dibandingkan dalam huruf kecil. */
 const ADDRESS_RE = /^0x[0-9a-f]{40}$/;
@@ -62,8 +63,11 @@ export function parseIntParam(
 
 /** job_id adalah bigint di database -- tolak yang bukan angka. */
 export function parseJobId(raw: string): number {
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 0) {
+  // Aturannya tinggal di lib/route-params.ts — satu sumber untuk backend
+  // dan frontend. Versi lama memakai Number(raw) + isInteger, yang
+  // menerima "0x10" (-> 16), "1e1" (-> 10), "007", dan angka di atas 2^53.
+  const n = parseJobIdParam(raw);
+  if (n === null) {
     throw new ApiError('VALIDATION', 'jobId tidak valid');
   }
   return n;

@@ -3,17 +3,17 @@ import { ButtonLink } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Upcoming } from '@/components/ui/Upcoming';
 
-export const metadata: Metadata = { title: 'Ringkasan' };
+export const metadata: Metadata = { title: 'Pasar' };
 
-export default function DashboardPage() {
+export default function MarketPage() {
   return (
     <>
       <PageHeader
-        title="Ringkasan"
-        sub="Dana, kontrak, dan hasil verifikasi Anda dalam satu tempat."
+        title="Pasar kontrak"
+        sub="Kontrak yang bisa diambil, sedang berjalan, dan sudah selesai."
         action={<ButtonLink href="/create" icon="plus">Buat kontrak</ButtonLink>}
       />
-      <Upcoming icon="dash" phase={3} what="Saldo wallet, dana yang terkunci di kontrak, statistik, dan kontrak terbaru." />
+      <Upcoming icon="store" phase={3} what="Daftar kontrak dengan filter Semua, Terbuka, Berjalan, Perlu juri, dan Selesai." />
     </>
   );
 }

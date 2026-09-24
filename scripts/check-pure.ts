@@ -3,13 +3,15 @@
  * (Fase 2) + verifyCronSecret dari validate.ts (Fase 5).
  * Jalankan: npm run check
  */
-import { decide } from '../lib/scoring';
+import { decide, hitPerQuery, type RunHit } from '../lib/scoring';
+import { parseJobIdParam } from '../lib/route-params';
+import { api, apiPost, ApiClientError } from '../lib/api';
 import { subsetSize, deriveSubset } from '../lib/vrf';
 import { queryPoolHash, canonicalQueryPool, contentHash } from '../lib/hash';
 import { verdictHash, type Verdict } from '../lib/verdict';
 import { formatTBNB, toWei, shortAddr } from '../lib/format';
 import { deriveUiStatus, UI_STATUS_META, type UiStatus, type UiStatusInput } from '../lib/status';
-import { verifyCronSecret } from '../lib/validate';
+import { verifyCronSecret, parseJobId } from '../lib/validate';
 
 let pass = 0;
 let fail = 0;
@@ -217,6 +219,125 @@ section('verifyCronSecret - penjaga endpoint internal');
 }
 
 // ---------------------------------------------------------
-console.log('\n' + '-'.repeat(46));
-console.log(`  lulus: ${pass}   gagal: ${fail}`);
-process.exit(fail ? 1 : 0);
+// ---------------------------------------------------------
+section('route-params.parseJobIdParam + validate.parseJobId - satu aturan untuk FE & BE');
+{
+  const valid: [string, number][] = [['0', 0], ['7', 7], ['42', 42], ['9007199254740991', 9007199254740991]];
+  for (const [raw, want] of valid) {
+    eq(`"${raw}" -> ${want}`, parseJobIdParam(raw), want);
+    eq(`parseJobId("${raw}") -> ${want}`, parseJobId(raw), want);
+  }
+  // Semua ini DITERIMA oleh aturan lama Number(raw) + isInteger (kecuali
+  // "", "abc", "-1") — dan beberapa diam-diam memetakan ke job LAIN.
+  const invalid = ['', 'abc', '-1', '+1', ' 1', '1 ', '1.0', '1.5', '1e1', '0x10', '007', '01',
+    '9007199254740992', '9007199254740993', '1_000', '１'];
+  for (const raw of invalid) {
+    eq(`${JSON.stringify(raw)} -> null`, parseJobIdParam(raw), null);
+    throws(`parseJobId(${JSON.stringify(raw)}) melempar`, () => parseJobId(raw));
+  }
+  eq('null -> null', parseJobIdParam(null), null);
+  eq('undefined -> null', parseJobIdParam(undefined), null);
+  // penjaga §A9: nol adalah id SAH, bukan "tidak ada"
+  check('"0" menghasilkan 0, bukan null', parseJobIdParam('0') === 0);
+}
+
+// ---------------------------------------------------------
+section('scoring.hitPerQuery - aturan gabung multi-engine');
+{
+  const A = 'claude-ringkas', B = 'claude-naratif';
+  const r = (query_index: number, engine: string, hit: boolean): RunHit => ({ query_index, engine, hit });
+  const toObj = (m: Map<number, boolean>) => Object.fromEntries([...m].sort((x, y) => x[0] - y[0]));
+
+  eq('1 engine: hasilnya = engine itu', toObj(hitPerQuery([r(0, A, true), r(1, A, false)], [A])), { 0: true, 1: false });
+  eq('2 engine: dua-duanya hit -> hit', toObj(hitPerQuery([r(0, A, true), r(0, B, true)], [A, B])), { 0: true });
+  eq('2 engine: satu miss -> TIDAK hit', toObj(hitPerQuery([r(0, A, true), r(0, B, false)], [A, B])), { 0: false });
+  eq('2 engine: baru satu menjawab -> belum ada hasil', toObj(hitPerQuery([r(0, A, true)], [A, B])), {});
+  eq('engine di luar daftar diabaikan', toObj(hitPerQuery([r(0, 'mock-a', false), r(0, A, true)], [A])), { 0: true });
+  eq('tanpa baris -> kosong', toObj(hitPerQuery([], [A, B])), {});
+  throws('engineIds kosong melempar', () => hitPerQuery([r(0, A, true)], []));
+
+  // Setara PERSIS dengan aturan lama di lib/oracle/runner.ts (exhaustive).
+  // Aturan lama: untuk tiap indeks, ambil hasil tiap engine aktif; kalau ada
+  // yang undefined -> tidak lengkap; kalau lengkap -> every(Boolean).
+  function runnerLama(results: Map<string, boolean>, engineIds: string[], indices: number[]) {
+    const out = new Map<number, boolean | 'tidak-lengkap'>();
+    for (const i of indices) {
+      const per = engineIds.map((e) => results.get(`${i}:${e}`));
+      out.set(i, per.some((v) => v === undefined) ? 'tidak-lengkap' : per.every(Boolean));
+    }
+    return out;
+  }
+  const STATES = [undefined, true, false] as const;
+  const mismatch: string[] = [];
+  let combos = 0;
+  for (const engineIds of [[A], [A, B]]) {
+    const slots = 3 * engineIds.length;               // 3 pertanyaan x jumlah engine
+    const total = 3 ** slots;
+    for (let k = 0; k < total; k++) {
+      const results = new Map<string, boolean>();
+      const runs: RunHit[] = [r(1, 'mock-b', true)];  // baris sisa provider lain di setiap kombinasi
+      let x = k;
+      for (let q = 0; q < 3; q++) for (const e of engineIds) {
+        const st = STATES[x % 3]; x = Math.floor(x / 3);
+        if (st !== undefined) { results.set(`${q}:${e}`, st); runs.push(r(q, e, st)); }
+      }
+      const lama = runnerLama(results, engineIds, [0, 1, 2]);
+      const baru = hitPerQuery(runs, engineIds);
+      for (const [i, v] of lama) {
+        const b = baru.has(i) ? baru.get(i) : 'tidak-lengkap';
+        if (b !== v) mismatch.push(`engine=${engineIds.length} kombinasi=${k} q${i}: lama=${v} baru=${b}`);
+      }
+      combos++;
+    }
+  }
+  check(`identik dengan aturan lama runner di ${combos} kombinasi`, mismatch.length === 0, mismatch.slice(0, 3).join('; '));
+}
+
+// ---------------------------------------------------------
+// lib/api.ts memakai fetch — diuji dengan fetch palsu, tanpa jaringan.
+async function checkApiClient() {
+  section('api - klien amplop respons');
+  const realFetch = globalThis.fetch;
+  const stub = (status: number, body: unknown, raw = false) => {
+    globalThis.fetch = (async () => new Response(raw ? String(body) : JSON.stringify(body), { status })) as typeof fetch;
+  };
+  const rejects = async (name: string, fn: () => Promise<unknown>, code: string, status: number) => {
+    try { await fn(); check(name, false, 'tidak melempar'); }
+    catch (e) {
+      const ok = e instanceof ApiClientError && e.code === code && e.status === status;
+      check(name, ok, e instanceof ApiClientError ? `code=${e.code} status=${e.status}` : String(e));
+    }
+  };
+  try {
+    stub(200, { ok: true, jobs: [1, 2], total: 2 });
+    eq('sukses: field ok dibuang, data utuh', await api<{ jobs: number[]; total: number }>('/api/jobs'), { jobs: [1, 2], total: 2 });
+
+    stub(400, { ok: false, code: 'HASH_MISMATCH', error: 'Data tidak cocok' });
+    await rejects('gagal: code & status dari server diteruskan', () => api('/api/jobs'), 'HASH_MISMATCH', 400);
+
+    stub(502, '<html>Bad Gateway</html>', true);
+    await rejects('bukan JSON -> BAD_RESPONSE', () => api('/api/jobs'), 'BAD_RESPONSE', 502);
+
+    stub(200, { jobs: [] });
+    await rejects('JSON tanpa field ok -> BAD_RESPONSE', () => api('/api/jobs'), 'BAD_RESPONSE', 200);
+
+    globalThis.fetch = (async () => { throw new TypeError('Failed to fetch'); }) as typeof fetch;
+    await rejects('jaringan putus -> NETWORK, status 0', () => api('/api/jobs'), 'NETWORK', 0);
+
+    let seen: RequestInit | undefined;
+    globalThis.fetch = (async (_u: unknown, init?: RequestInit) => { seen = init; return new Response(JSON.stringify({ ok: true, deliverableHash: '0xab' })); }) as typeof fetch;
+    await apiPost('/api/jobs/0/deliverable', { content: 'x' });
+    check('apiPost: method POST', seen?.method === 'POST');
+    check('apiPost: body JSON', seen?.body === JSON.stringify({ content: 'x' }));
+    check('apiPost: Content-Type JSON', (seen?.headers as Record<string, string> | undefined)?.['Content-Type'] === 'application/json');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+// ---------------------------------------------------------
+checkApiClient().then(() => {
+  console.log('\n' + '-'.repeat(46));
+  console.log(`  lulus: ${pass}   gagal: ${fail}`);
+  process.exit(fail ? 1 : 0);
+});

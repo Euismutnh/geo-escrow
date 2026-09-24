@@ -7,16 +7,20 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "check": "tsx scripts/check-pure.ts && tsx scripts/check-oracle.ts && tsx scripts/check-input.ts"
+    "check": "tsx scripts/check-pure.ts && tsx scripts/check-oracle.ts && tsx scripts/check-input.ts",
+    "check:security": "tsx scripts/check-security.ts",
+    "openapi": "tsx scripts/gen-openapi.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.116.0",
+    "@tanstack/react-query": "^5.103.2",
     "next": "16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "viem": "^2.56.3"
+    "viem": "^2.56.3",
+    "wagmi": "^3.7.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

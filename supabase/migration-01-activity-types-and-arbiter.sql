@@ -68,6 +68,21 @@ alter table jobs drop column if exists arbiter_addr;
 --
 -- 130726112 = satu blok SEBELUM deploy, supaya blok deploy sendiri
 -- ikut terbaca.
+--
+-- CATATAN SUSULAN (23 Sep 2026): baris ini ternyata TIDAK cukup, dan
+-- bukan karena salah. RPC publik hanya menyimpan log ~90.000 blok
+-- terakhir (~11 jam) -- jauh lebih pendek dari jarak ke blok deploy.
+-- Setiap permintaan untuk rentang setua itu ditolak "History has been
+-- pruned for this block".
+--
+-- runIndexer() menanganinya sendiri: ia melompat ke blok tertua yang
+-- masih punya log, menyimpan bookmark baru, dan melaporkan berapa blok
+-- yang dilompati. Jadi baris ini tetap aman dijalankan -- ia cuma jadi
+-- titik awal yang langsung dikoreksi di putaran pertama.
+--
+-- Kalau ledger HARUS lengkap sejak job pertama, ganti RPC-nya dengan
+-- yang arsip. Tidak ada perbaikan di sisi kode untuk data yang sudah
+-- tidak disimpan node.
 -- ------------------------------------------------------------
 insert into indexer_state (contract_addr, last_block_processed)
 values (lower('0x41462F3092Ca66b7B3d9c8b20337793e2756cC46'), 130726112)

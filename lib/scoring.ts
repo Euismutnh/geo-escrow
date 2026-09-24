@@ -37,6 +37,52 @@ export function decide({ score, of, target, n }: DecideArgs): Decision {
   return 'dispute';
 }
 
+/** Satu hasil engine untuk satu pertanyaan — bentuk minimum baris oracle_runs. */
+export interface RunHit {
+  query_index: number;
+  engine: string;
+  hit: boolean;
+}
+
+/**
+ * Gabungkan hasil per-engine jadi SATU hit per pertanyaan.
+ *
+ * Aturannya (dipindah dari lib/oracle/runner.ts, sama seperti prototipe):
+ *   - pertanyaan dihitung "hit" hanya kalau LOLOS DI SEMUA engine
+ *   - pertanyaan yang belum dijawab SEMUA engine TIDAK dimasukkan ke hasil:
+ *     "belum diketahui" tidak boleh diperlakukan sebagai "tidak disebut"
+ *   - baris dari engine di luar `engineIds` DIABAIKAN (mis. sisa dari
+ *     provider lain di job yang sama)
+ *
+ * Fungsi murni — dipakai runner (server) DAN radar sitasi (frontend), supaya
+ * angka yang dilihat juri di radar tidak bisa berbeda dari skor verdict.
+ * Kalau satu engine punya dua baris untuk pertanyaan yang sama, yang
+ * terakhir di `runs` yang dipakai.
+ */
+export function hitPerQuery(
+  runs: readonly RunHit[],
+  engineIds: readonly string[]
+): Map<number, boolean> {
+  if (engineIds.length === 0) {
+    throw new Error('hitPerQuery(): engineIds tidak boleh kosong');
+  }
+  const wanted = new Set(engineIds);
+  const perQuery = new Map<number, Map<string, boolean>>();
+  for (const r of runs) {
+    if (!wanted.has(r.engine)) continue;
+    let m = perQuery.get(r.query_index);
+    if (!m) perQuery.set(r.query_index, (m = new Map()));
+    m.set(r.engine, r.hit);
+  }
+
+  const out = new Map<number, boolean>();
+  for (const [index, m] of perQuery) {
+    if (m.size !== wanted.size) continue; // belum lengkap = belum diketahui
+    out.set(index, [...m.values()].every(Boolean));
+  }
+  return out;
+}
+
 /**
  * Target yang diskalakan ke ukuran subset.
  * HANYA untuk ditampilkan ke user — jangan dipakai untuk memutuskan,

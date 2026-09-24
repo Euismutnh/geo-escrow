@@ -352,7 +352,8 @@ async function kirim(
     const receipt = await publicClient().waitForTransactionReceipt({
       hash,
       confirmations: 1,
-      // BSC ~3 detik per blok. 90 detik = ±30 blok; kalau belum masuk
+      // BSC Testnet ~0,45 detik per blok (diukur 23 Sep 2026, sampel
+      // 10.000 blok). 90 detik = ±200 blok; kalau belum masuk
       // juga, jaringannya yang bermasalah. Tetap di bawah maxDuration
       // route (yang 60-120 detik) supaya error kita yang muncul duluan,
       // bukan pemutusan mendadak oleh platform.
