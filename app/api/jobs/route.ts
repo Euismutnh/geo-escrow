@@ -19,7 +19,7 @@ import { readJobFromChain } from '@/lib/chain-server';
 import { runBaseline } from '@/lib/oracle/runner';
 import { enginesFor } from '@/lib/oracle';
 import { rateLimit } from '@/lib/rate-limit';
-import { ok, fail, handler, ApiError } from '@/lib/http';
+import { ok, fail, handler, internalError } from '@/lib/http';
 
 // POST memicu baseline lewat after(), yang tetap dihitung ke maxDuration.
 export const maxDuration = 60;
@@ -167,7 +167,7 @@ export const POST = handler(async (req: NextRequest) => {
     if (error.code === '23505') {
       return fail('VALIDATION', `Job ${jobId} sudah terdaftar`);
     }
-    throw new ApiError('INTERNAL', error.message);
+    throw internalError('menyimpan job', error);
   }
 
   // ---------- baseline berjalan SETELAH respons terkirim ----------

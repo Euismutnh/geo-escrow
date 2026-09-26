@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { parseIntParam, parseJobId } from '@/lib/validate';
-import { ok, fail, handler } from '@/lib/http';
+import { ok, fail, handler, internalError } from '@/lib/http';
 
 const PHASES = ['baseline', 'verification'] as const;
 type Phase = (typeof PHASES)[number];
@@ -32,7 +32,7 @@ export const GET = handler(async (req: NextRequest) => {
   if (rawPhase) q = q.eq('phase', rawPhase);
 
   const { data, error } = await q;
-  if (error) return fail('INTERNAL', error.message);
+  if (error) throw internalError('memuat log Oracle', error);
 
   return ok({ runs: data ?? [] });
 });

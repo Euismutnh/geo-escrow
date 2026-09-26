@@ -207,6 +207,40 @@ console.log('\n3. Kebocoran pesan error');
       ? `${telanjang.join('\n          ')}\n          Tanpa handler(), stack trace dan pesan mentah Postgres ikut terkirim ke client.`
       : ''
   );
+
+  // handler() hanya menyembunyikan error yang BUKAN ApiError. Pesan mentah
+  // yang dibungkus sendiri ke ApiError/fail() — atau ditulis ke last_error,
+  // yang terbaca publik lewat GET /api/jobs/:id — tetap bocor. Pesan viem
+  // memuat URL RPC lengkap (dan kuncinya, kalau penyedia RPC menaruh
+  // kunci di URL).
+  //
+  // /api/dev/seed dikecualikan: route dev, mati di produksi (bagian 4).
+  const POLA_BOCOR: [string, RegExp][] = [
+    ["ApiError('INTERNAL', <x>.message)", /ApiError\(\s*'INTERNAL'\s*,\s*[\w.]*\.message/],
+    ["fail('INTERNAL', <x>.message)", /fail\(\s*'INTERNAL'\s*,\s*[\w.]*\.message/],
+    ["fail(<kode>, e instanceof Error ? e.message …)", /fail\([^)]*instanceof Error \? \w+\.message/],
+    ['releaseLock(…, e.message) -> last_error mentah', /releaseLock\([^;]*\.message/],
+    ['OracleError(e.message) -> dianggap aman padahal mentah', /new OracleError\(\s*\w+ instanceof Error \? \w+\.message/],
+    ['pesan error disisipkan ke template string', /\$\{\s*\w+ instanceof Error \? \w+\.message/],
+  ];
+  const kodeServer = [...berkas('lib'), ...berkas('app')].filter(
+    (f) => /\.tsx?$/.test(f) && !f.replace(/\\/g, '/').startsWith('app/api/dev/')
+  );
+  const temuan: string[] = [];
+  for (const f of kodeServer) {
+    const baris = readFileSync(f, 'utf8').split('\n');
+    baris.forEach((b, i) => {
+      if (/^\s*(\*|\/\/)/.test(b)) return; // komentar & JSDoc
+      for (const [nama, re] of POLA_BOCOR) if (re.test(b)) temuan.push(`${f}:${i + 1}  ${nama}`);
+    });
+  }
+  cek(
+    'tidak ada pesan error mentah yang dibungkus ke respons / last_error',
+    temuan.length === 0,
+    temuan.length
+      ? `${temuan.join('\n          ')}\n          Pakai internalError() / publicErrorMessage() dari lib/http.ts.`
+      : ''
+  );
 }
 
 // ── 4. Endpoint dev tidak boleh hidup di produksi ─────────────────
@@ -309,6 +343,27 @@ console.log('\n8. Konfigurasi rantai');
   }
 
   cek('RPC_URL terisi', !!process.env.RPC_URL);
+
+  // Fase 5: browser membaca chain lewat NEXT_PUBLIC_RPC_URL — nilainya
+  // TER-BUNDLE ke JavaScript publik. RPC_URL server memuat kunci (URL
+  // lengkapnya pernah bocor lewat pesan viem, temuan A21); menyalinnya ke
+  // variabel publik membagikan kunci itu ke setiap pengunjung.
+  // Yang dilarang bukan "nilainya sama" — publicnode tanpa kunci boleh
+  // dipakai keduanya — tapi URL BERKUNCI (path, query, atau user:pass —
+  // bentuk umum kunci penyedia RPC berbayar) yang tersalin ke variabel publik.
+  const pub = (process.env.NEXT_PUBLIC_RPC_URL ?? '').trim();
+  const priv = (process.env.RPC_URL ?? '').trim();
+  const parse = (s: string) => { try { return new URL(s); } catch { return null; } };
+  const keyed = (u: URL | null) => !!u && (u.pathname.length > 1 || u.search.length > 0 || !!u.username || !!u.password);
+  warn('NEXT_PUBLIC_RPC_URL terisi', !!pub, 'Kosong — wallet & saldo di browser memakai RPC bawaan viem, yang sering kena rate limit.');
+  if (pub) {
+    const a = parse(pub), b = parse(priv);
+    cek('NEXT_PUBLIC_RPC_URL sah & https', a?.protocol === 'https:', 'Bukan URL https yang sah.');
+    cek('NEXT_PUBLIC_RPC_URL tidak menyalin RPC_URL berkunci', !(keyed(b) && a && b && a.host === b.host && a.pathname === b.pathname && a.search === b.search),
+      'Sama dengan RPC_URL server yang memuat path/kunci — URL itu akan ter-bundle ke browser. Pakai RPC publik tanpa kunci.');
+    warn('NEXT_PUBLIC_RPC_URL tanpa path/query/kredensial', !keyed(a),
+      'URL publik memuat path, query, atau user:pass. Kalau itu kunci, siapa pun bisa membacanya dari bundle JavaScript.');
+  }
   cek('GEO_ESCROW_ADDRESS terisi', !!process.env.GEO_ESCROW_ADDRESS);
   warn(
     'RPC_URL bukan drpc',

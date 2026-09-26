@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
+import { DashboardView } from '@/components/dashboard/DashboardView';
 import { ButtonLink } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { Upcoming } from '@/components/ui/Upcoming';
 
 export const metadata: Metadata = { title: 'Ringkasan' };
 
@@ -13,7 +13,7 @@ export default function DashboardPage() {
         sub="Dana, kontrak, dan hasil verifikasi Anda dalam satu tempat."
         action={<ButtonLink href="/create" icon="plus">Buat kontrak</ButtonLink>}
       />
-      <Upcoming icon="dash" phase={3} what="Saldo wallet, dana yang terkunci di kontrak, statistik, dan kontrak terbaru." />
+      <DashboardView />
     </>
   );
 }

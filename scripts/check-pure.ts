@@ -4,14 +4,42 @@
  * Jalankan: npm run check
  */
 import { decide, hitPerQuery, type RunHit } from '../lib/scoring';
-import { parseJobIdParam } from '../lib/route-params';
+import { parseJobIdParam, firstParam, parsePageParam, MAX_PAGE } from '../lib/route-params';
 import { api, apiPost, ApiClientError } from '../lib/api';
 import { subsetSize, deriveSubset } from '../lib/vrf';
 import { queryPoolHash, canonicalQueryPool, contentHash } from '../lib/hash';
 import { verdictHash, type Verdict } from '../lib/verdict';
-import { formatTBNB, toWei, shortAddr } from '../lib/format';
+import { formatTBNB, formatTBNBShort, toWei, shortAddr, formatTime, formatRelative } from '../lib/format';
+import { ledgerBalance, ledgerSeries, LEDGER_IN, LEDGER_OUT, LEDGER_NEUTRAL, type LedgerRow } from '../lib/ledger';
+import { readFileSync } from 'node:fs';
 import { deriveUiStatus, UI_STATUS_META, type UiStatus, type UiStatusInput } from '../lib/status';
 import { verifyCronSecret, parseJobId } from '../lib/validate';
+import { ApiError, internalError, publicErrorMessage } from '../lib/http';
+import { OracleError } from '../lib/oracle/types';
+import {
+  auditVerdict, decisionMath, fundsLabel, heldInContract, isAcceptExpired, isHashMismatch, isVerifyStuck,
+  lastActivity, phaseHits, rejectedSubmission, timeline, type TimeCtx,
+} from '../lib/job-view';
+import type { ActivityEntry, Job } from '../lib/types';
+import {
+  BaseError, ContractFunctionExecutionError, ContractFunctionRevertedError, InsufficientFundsError,
+  UserRejectedRequestError, WaitForTransactionReceiptTimeoutError,
+} from 'viem';
+import { geoEscrowAbi } from '../lib/abi';
+import {
+  chainName, classifyTxError, isBusy, isUserRejection, pickConnectors, relationToJob, sameAddr,
+  stepIndex, syncDecision, TX_MSG,
+} from '../lib/tx';
+import { lockedFor, receivedBy } from '../lib/ledger';
+import { encodeAbiParameters, encodeEventTopics, type Log } from 'viem';
+import { checkDraft, LIMITS, parseBudgetTbnb, parseQueries, toLocalInput, type Draft } from '../lib/job-input';
+import { jobIdFromReceipt, makeSnapshot, metadataBody, parsePending, parsePendingAll, saveJobMetadata } from '../lib/create-job';
+import { requireFutureDate, requireJobId, requireQueryPool, requireText, requireWei } from '../lib/validate-input';
+import { requireAddress } from '../lib/validate';
+import { acceptGuard, postDeliverable, submitGuard } from '../lib/deliverable';
+import { checkStructural } from '../lib/structural';
+import { contentAllowed, HASH_MISMATCH_ERROR, isEmptyHash, lockedDeliverableHash } from '../lib/deliverable-lock';
+import { keBarisActivity, settledByDari, type LogTerurai } from '../lib/indexer';
 
 let pass = 0;
 let fail = 0;
@@ -239,6 +267,16 @@ section('route-params.parseJobIdParam + validate.parseJobId - satu aturan untuk 
   eq('undefined -> null', parseJobIdParam(undefined), null);
   // penjaga §A9: nol adalah id SAH, bukan "tidak ada"
   check('"0" menghasilkan 0, bukan null', parseJobIdParam('0') === 0);
+
+  // searchParams Next.js 16 bisa string, array, atau undefined
+  eq('firstParam(string)', firstParam('open'), 'open');
+  eq('firstParam(array) -> yang pertama', firstParam(['open', 'done']), 'open');
+  eq('firstParam(undefined)', firstParam(undefined), undefined);
+  eq('halaman: kosong -> 1', parsePageParam(undefined), 1);
+  eq('halaman: "3" -> 3', parsePageParam('3'), 3);
+  eq('halaman: "0" -> 1 (halaman dimulai dari 1)', parsePageParam('0'), 1);
+  eq('halaman: "-2" / "abc" / "1.5" -> 1', [parsePageParam('-2'), parsePageParam('abc'), parsePageParam('1.5')], [1, 1, 1]);
+  eq('halaman: di atas batas server diklem', parsePageParam('99999999'), MAX_PAGE);
 }
 
 // ---------------------------------------------------------
@@ -294,6 +332,502 @@ section('scoring.hitPerQuery - aturan gabung multi-engine');
 }
 
 // ---------------------------------------------------------
+section('format - tanggal tidak valid tidak boleh jadi "Invalid Date"');
+{
+  for (const v of ['bukan-tanggal', '', NaN] as never[]) eq(`formatTime(${JSON.stringify(v)}) -> ''`, formatTime(v), '');
+  check('formatTime tanggal sah tidak kosong', formatTime('2026-09-24T10:00:00Z').length > 0);
+  const now = Date.parse('2026-09-24T12:00:00Z'), M = 60_000, H = 60 * M, D = 24 * H;
+  eq('relatif: 20 detik lalu -> baru saja', formatRelative(now - 20_000, now), 'baru saja');
+  eq('relatif: 5 menit lalu', formatRelative(now - 5 * M, now), '5 menit lalu');
+  eq('relatif: 2 jam lalu', formatRelative(now - 2 * H, now), '2 jam lalu');
+  eq('relatif: 3 hari lalu', formatRelative(now - 3 * D, now), '3 hari lalu');
+  eq('relatif: masa depan', formatRelative(now + 2 * D, now), 'dalam 2 hari');
+  eq('relatif: tidak valid -> kosong', formatRelative('rusak', now), '');
+}
+
+// ---------------------------------------------------------
+section('ledger - saldo escrow dari aktivitas');
+{
+  const T = (h: number) => new Date(Date.parse('2026-09-01T00:00:00Z') + h * 3_600_000).toISOString();
+  const row = (type: string, wei: string | null, h: number): LedgerRow => ({ type, amount_wei: wei, created_at: T(h) });
+  // Satu job lengkap sampai cair, persis seperti GeoEscrow._settle memancarkannya:
+  // Settled.amount = sisa budget + bond (800 + 50) dalam SATU transfer, lalu
+  // BondSettled(50) sebagai rincian. Model lama (final 800 + bond 50) salah.
+  const selesai = [row('deposit', '1000', 0), row('bond_lock', '50', 1), row('structural_release', '200', 2),
+    row('dispute_raised', null, 3), row('final_release', '850', 4), row('bond_return', '50', 4)];
+  eq('job selesai impas 0', ledgerBalance(selesai).balance.toString(), '0');
+  eq('tanpa masalah', ledgerBalance(selesai).problems, []);
+  eq('saldo di tengah jalan (jam 2)', ledgerBalance(selesai, Date.parse(T(2))).balance.toString(), '850');
+  // refund: sisa + bond ke client, bond_slash hanya rincian
+  const refund = [row('deposit', '1000', 0), row('bond_lock', '50', 1), row('structural_release', '200', 2),
+    row('final_refund', '850', 3), row('bond_slash', '50', 3)];
+  eq('refund impas 0 (bond_slash tidak dihitung dua kali)', ledgerBalance(refund).balance.toString(), '0');
+  eq('reclaim mengosongkan', ledgerBalance([row('deposit', '1000', 0), row('reclaim', '1000', 9)]).balance.toString(), '0');
+  const aneh = ledgerBalance([row('deposit', '1000', 0), row('tipe_baru', '5', 1), row('bond_lock', null, 2)]);
+  eq('tipe tak dikenal & jumlah kosong dilaporkan', aneh.problems.length, 2);
+  eq('seri: titik pertama & terakhir', ledgerSeries(selesai, Date.parse(T(0)), Date.parse(T(4)), 5).map(String), ['1000', '1050', '850', '850', '0']);
+  throws('seri butuh minimal 2 titik', () => ledgerSeries(selesai, 0, 1, 1));
+
+  // PAGAR ANTI-PENYIMPANGAN: union ActivityType di lib/indexer.ts dibaca apa adanya.
+  const src = readFileSync(new URL('../lib/indexer.ts', import.meta.url), 'utf8');
+  const union = src.match(/type ActivityType =([\s\S]*?);/);
+  const dariIndexer = union ? [...union[1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]).sort() : [];
+  const diLedger = [...LEDGER_IN, ...LEDGER_OUT, ...LEDGER_NEUTRAL].sort();
+  check('union ActivityType terbaca dari lib/indexer.ts', dariIndexer.length > 0);
+  eq('setiap tipe indexer terklasifikasi, tidak kurang tidak lebih', diLedger, dariIndexer);
+  check('tidak ada tipe di dua daftar sekaligus', new Set(diLedger).size === diLedger.length);
+}
+
+// ---------------------------------------------------------
+section('http - pesan error mentah tidak sampai ke publik');
+{
+  // Contoh nyata bentuk pesan yang bocor: PostgREST menyebut nama kolom,
+  // viem menyertakan URL RPC lengkap beserta kuncinya dan isi request.
+  const RAHASIA = 'KUNCI_RPC_RAHASIA_123';
+  const pg = { message: 'column jobs.client_addrx does not exist', code: '42703' };
+  const viem = new Error(`HTTP request failed.\n\nURL: https://bsc.example/v1/${RAHASIA}\nRequest body: {"method":"eth_sendRawTransaction"}`);
+
+  const realError = console.error;
+  const tercatat: unknown[][] = [];
+  console.error = (...a: unknown[]) => { tercatat.push(a); };
+  try {
+    const ie = internalError('memuat job', pg);
+    check('internalError -> ApiError INTERNAL', ie instanceof ApiError && ie.code === 'INTERNAL');
+    eq('internalError: pesan umum buatan kita', ie.message, 'Gagal memuat job');
+    check('internalError: error asli disimpan di cause', ie.cause === pg);
+    check('internalError: error asli dicatat di log server', tercatat.some((a) => a.includes(pg)));
+
+    const fb = 'Kesalahan sistem';
+    eq('publicErrorMessage: ApiError diteruskan', publicErrorMessage(new ApiError('WRONG_STATUS', 'Job belum Submitted'), fb), 'Job belum Submitted');
+    eq('publicErrorMessage: OracleError diteruskan', publicErrorMessage(new OracleError('Kena rate limit Anthropic', true), fb), 'Kena rate limit Anthropic');
+    eq('publicErrorMessage: Error viem disembunyikan', publicErrorMessage(viem, fb), fb);
+    eq('publicErrorMessage: objek error Supabase disembunyikan', publicErrorMessage(pg, fb), fb);
+    eq('publicErrorMessage: string mentah disembunyikan', publicErrorMessage(`gagal: ${RAHASIA}`, fb), fb);
+    eq('publicErrorMessage: undefined -> fallback', publicErrorMessage(undefined, fb), fb);
+    eq('publicErrorMessage: ApiError dari internalError tetap umum', publicErrorMessage(internalError('menyimpan job', viem), fb), 'Gagal menyimpan job');
+    check('publicErrorMessage: yang disembunyikan tetap dicatat', tercatat.some((a) => a.includes(viem)));
+  } finally {
+    console.error = realError;
+  }
+}
+
+// ---------------------------------------------------------
+section('job-view - radar: penjaga multi_engine (§A11)');
+{
+  const run = (phase: 'baseline' | 'verification', q: number, engine: string, hit: boolean) => ({ phase, query_index: q, engine, hit });
+  const multi = { multi_engine: true }, single = { multi_engine: false };
+
+  // multi_engine, baru SATU gaya yang menjawab: hitPerQuery sendirian akan
+  // menganggapnya lengkap. Penjaga harus menahan semuanya.
+  const satu = phaseHits(multi, [run('baseline', 0, 'claude-ringkas', true), run('baseline', 1, 'claude-ringkas', false)], 'baseline');
+  eq('multi + 1 engine -> tidak ada hasil per pertanyaan', satu.hits.size, 0);
+  eq('multi + 1 engine -> masalah "waiting"', satu.problem, 'waiting');
+
+  const dua = phaseHits(multi, [
+    run('baseline', 0, 'claude-ringkas', true), run('baseline', 0, 'claude-naratif', false),
+    run('baseline', 1, 'claude-ringkas', true), run('baseline', 1, 'claude-naratif', true),
+    run('baseline', 2, 'claude-ringkas', true),
+  ], 'baseline');
+  eq('multi + 2 engine: satu hit satu miss -> MISS', dua.hits.get(0), false);
+  eq('multi + 2 engine: dua-duanya hit -> hit', dua.hits.get(1), true);
+  eq('multi + 2 engine: baru satu gaya di #2 -> belum diketahui', dua.hits.has(2), false);
+  eq('multi + 2 engine -> tanpa masalah', dua.problem, null);
+
+  eq('single + 1 engine -> dipakai apa adanya', [...phaseHits(single, [run('baseline', 0, 'mock-a', true)], 'baseline').hits], [[0, true]]);
+  eq('single + 2 engine (sisa provider lain) -> "ambiguous", kosong',
+    [phaseHits(single, [run('baseline', 0, 'mock-a', true), run('baseline', 0, 'claude-ringkas', false)], 'baseline')].map((p) => [p.problem, p.hits.size]), [['ambiguous', 0]]);
+  eq('fase lain tidak ikut terhitung', phaseHits(single, [run('verification', 0, 'mock-a', true)], 'baseline').hits.size, 0);
+  eq('tanpa log -> kosong, bukan masalah', phaseHits(multi, [], 'verification').problem, null);
+}
+
+section('job-view - perjalanan kontrak (13 status UI)');
+{
+  const base: Job = {
+    job_id: 7, client_addr: '0xc1', freelancer_addr: null, brand: 'Kopi Rasa', brief: null, queries: ['a', 'b', 'c', 'd', 'e'],
+    target_count: 3, multi_engine: false, query_pool_hash: '0x', budget_wei: '10000000000000000', bond_wei: null, structural_released_wei: '0',
+    deliverable_content: null, deliverable_hash: null, deliverable_submitted_at: null, baseline_score: null, baseline_of: null, baseline_at: null,
+    verification_seed: null, verification_subset: null, verification_score: null, verification_of: null, verification_decision: null,
+    verification_at: null, verdict_hash: null, verdict_json: null, status: 'Open', job_state: 'queued_baseline', job_state_at: '2026-09-01T00:00:00Z',
+    settled_by: null, last_error: null, accept_deadline: '2026-09-10T00:00:00Z', created_at: '2026-09-01T00:00:00Z', updated_at: '2026-09-01T00:00:00Z',
+  };
+  const act = (type: string, block: number, created_at = '2026-09-02T00:00:00Z', note: string | null = null): ActivityEntry => ({
+    id: `${type}${block}`, job_id: 7, tx_hash: `0x${String(block).padStart(64, '0')}`, log_index: 0, block_number: block, type,
+    amount_wei: null, from_addr: null, to_addr: null, note, created_at,
+  });
+  const T: TimeCtx = { now: Date.parse('2026-09-05T00:00:00Z'), verifyTimeoutSec: 7 * 86400 };
+  const states = (j: Job, a: ActivityEntry[] = [], t = T) => timeline(j, deriveUiStatus(j), a, t).steps.map((s) => s.state[0]).join('');
+
+  // d=done a=active f=fail s=skip t=todo
+  const cases: [UiStatus, Partial<Job>, string, number][] = [
+    ['baseline_running', {}, 'dattttt', 1],
+    ['baseline_failed', { job_state: 'error' }, 'dfttttt', 1],
+    ['open', { job_state: 'idle', baseline_score: 1 }, 'ddatttt', 2],
+    ['in_progress', { status: 'Accepted', baseline_score: 1, freelancer_addr: '0xf1' }, 'dddattt', 3],
+    ['submitted_pending', { status: 'Submitted', job_state: 'running_structural', baseline_score: 1 }, 'ddddatt', 4],
+    ['structural_failed', { status: 'Submitted', job_state: 'error', baseline_score: 1 }, 'ddddftt', 4],
+    ['awaiting_verify', { status: 'Verifying', job_state: 'idle', baseline_score: 1 }, 'dddddat', 5],
+    ['verifying', { status: 'Verifying', job_state: 'running_verify', baseline_score: 1 }, 'dddddat', 5],
+    ['dispute', { status: 'Disputed', job_state: 'idle', baseline_score: 1 }, 'dddddda', 6],
+    ['settled_release', { status: 'ReleasedFull', job_state: 'idle', baseline_score: 1, settled_by: 'oracle', freelancer_addr: '0xf1' }, 'ddddddd', 7],
+    ['settled_refund', { status: 'Refunded', job_state: 'idle', baseline_score: 1, settled_by: 'oracle', freelancer_addr: '0xf1' }, 'ddddddd', 7],
+    ['jury_release', { status: 'ReleasedFull', job_state: 'idle', baseline_score: 1, settled_by: 'arbiter', freelancer_addr: '0xf1' }, 'ddddddd', 7],
+    ['jury_refund', { status: 'Refunded', job_state: 'idle', baseline_score: 1, settled_by: 'arbiter', freelancer_addr: '0xf1' }, 'ddddddd', 7],
+  ];
+  const seen = new Set<UiStatus>();
+  for (const [ui, patch, want, reached] of cases) {
+    const j = { ...base, ...patch };
+    check(`input kasus ${ui} benar-benar menghasilkan ${ui}`, deriveUiStatus(j) === ui, deriveUiStatus(j));
+    seen.add(deriveUiStatus(j));
+    eq(`${ui}: keadaan 7 langkah`, states(j), want);
+    eq(`${ui}: "N dari 7 langkah"`, timeline(j, ui, [], T).reached, reached);
+  }
+  eq('ke-13 status UI teruji', seen.size, Object.keys(UI_STATUS_META).length);
+
+  const reclaimed = { ...base, status: 'Refunded' as const, job_state: 'idle' as const, baseline_score: 1 };
+  eq('reclaim (tanpa freelancer): langkah 3–6 dilewati', states(reclaimed), 'ddssssd');
+  eq('reclaim: settlement menyebut penarikan', timeline(reclaimed, 'settled_refund', [], T).steps[6].sub, 'Budget ditarik kembali oleh client');
+  eq('reclaim: status dana', fundsLabel(reclaimed, 'settled_refund'), ['Ditarik kembali oleh client', 'faint']);
+
+  const open = { ...base, job_state: 'idle' as const, baseline_score: 1 };
+  check('batas ambil lewat -> disebut di langkah 3', timeline({ ...open, accept_deadline: '2026-09-03T00:00:00Z' }, 'open', [], T).steps[2].sub.startsWith('Batas ambil lewat'));
+  check('tanpa jam (render server) -> tidak menebak "lewat"', !isAcceptExpired(open, null));
+  check('batas ambil belum lewat -> tidak lewat', !isAcceptExpired({ ...open, accept_deadline: '2026-09-30T00:00:00Z' }, T.now));
+
+  const acc = { ...base, status: 'Accepted' as const, job_state: 'idle' as const, baseline_score: 1, freelancer_addr: '0xf1' };
+  eq('kiriman ditolak -> langkah 4 menyebutnya', timeline(acc, 'in_progress', [act('deposit', 1), act('bond_lock', 2), act('structural_rejected', 3, undefined, 'Konten terlalu pendek')], T).steps[3].sub,
+    'Kiriman sebelumnya ditolak · menunggu kiriman ulang');
+  eq('rejectedSubmission hanya saat in_progress', rejectedSubmission('awaiting_verify', [act('structural_rejected', 3)]), null);
+
+  const ver = { ...base, status: 'Verifying' as const, job_state: 'idle' as const, baseline_score: 1 };
+  check('macet: structural_release > timeout lalu', isVerifyStuck(ver, [act('structural_release', 5, '2026-08-01T00:00:00Z')], T));
+  check('belum macet: masih di dalam timeout', !isVerifyStuck(ver, [act('structural_release', 5, '2026-09-04T00:00:00Z')], T));
+  check('timeout belum diketahui -> tidak macet', !isVerifyStuck(ver, [act('structural_release', 5, '2026-08-01T00:00:00Z')], { ...T, verifyTimeoutSec: null }));
+  check('sedang running_verify -> tidak macet', !isVerifyStuck({ ...ver, job_state: 'running_verify' }, [act('structural_release', 5, '2026-08-01T00:00:00Z')], T));
+
+  const done = timeline({ ...base, status: 'ReleasedFull', job_state: 'idle', baseline_score: 1, baseline_at: '2026-09-01T01:00:00Z', freelancer_addr: '0xf1', settled_by: 'oracle' }, 'settled_release',
+    [act('deposit', 1), act('bond_lock', 2), act('final_release', 9), act('structural_release', 5)], T).steps;
+  eq('langkah on-chain membawa tx event-nya', [done[0].tx, done[2].tx, done[4].tx, done[6].tx].map((h) => h && Number(BigInt(h))), [1, 2, 5, 9]);
+  eq('langkah Oracle tanpa tx', done[1].tx, null);
+  eq('langkah belum selesai tanpa waktu', timeline(open, 'open', [act('deposit', 1)], T).steps[2].at, null);
+  eq('lastActivity memilih blok terbaru, bukan urutan array',
+    lastActivity([act('structural_rejected', 9), act('structural_rejected', 3)], ['structural_rejected'])?.block_number, 9);
+}
+
+section('job-view - ledger per kontrak');
+{
+  const row = (type: string, amount_wei: string | null) => ({ id: type, job_id: 1, tx_hash: '0x', log_index: 0, block_number: 1, type, amount_wei, from_addr: null, to_addr: null, note: null, created_at: '2026-09-01T00:00:00Z' });
+  const held = (rows: ActivityEntry[]) => heldInContract(rows)?.toString() ?? null; // eq() memakai JSON: BigInt tidak bisa
+  eq('tanpa event on-chain -> null (bukan 0)', held([]), null);
+  eq('deposit + bond - structural', held([row('deposit', '1000'), row('bond_lock', '50'), row('structural_release', '200')]), '850');
+  eq('selesai -> 0', held([row('deposit', '1000'), row('bond_lock', '50'), row('structural_release', '200'), row('final_release', '850'), row('bond_return', '50')]), '0');
+  eq('baris uang tanpa jumlah -> null, bukan angka tebakan', held([row('deposit', null)]), null);
+}
+
+section('job-view - audit verdict dihitung ulang di browser');
+{
+  const seed = `0x${'ab'.repeat(32)}` as const;
+  const n = 5, k = subsetSize(n);
+  const subset = deriveSubset(seed, n, k);
+  const hitOf = (qi: number) => qi % 2 === 0;
+  const hits: number[] = subset.map((qi) => (hitOf(qi) ? 1 : 0));
+  const score = hits.reduce((a, b) => a + b, 0);
+  const verdict: Verdict = { v: 'GEOv1', jobId: 3, brand: 'Kopi Rasa', seed, subset, hits, score, of: k, target: 3, n, multiEngine: false, decision: decide({ score, of: k, target: 3, n }) };
+  const vh = verdictHash(verdict);
+  const runs = subset.map((qi, i) => ({ id: `r${i}`, job_id: 3, phase: 'verification' as const, query_index: qi, query: 'q', engine: 'mock-a', model: null, hit: hitOf(qi), answer: '', latency_ms: null, created_at: '2026-09-01T00:00:00Z' }));
+  const job = { verdict_hash: vh, verification_subset: subset, multi_engine: false } as Job;
+  const on = { onChain: vh, chainEnabled: true };
+  const res = (j: Job, v: Verdict, r: typeof runs, c: Parameters<typeof auditVerdict>[3]) => {
+    const a = auditVerdict(j, v, r, c);
+    return a.overall + ':' + a.checks.map((x) => x.result).join('');
+  };
+
+  eq('verdict jujur, chain aktif -> semua lolos', res(job, verdict, runs, on), 'y:yyyyy');
+  eq('chain nonaktif -> dilewati, bukan gagal', res(job, verdict, runs, { onChain: null, chainEnabled: false }), 's:yyyys');
+  eq('kontrak menyimpan hash nol -> gagal', res(job, verdict, runs, { onChain: `0x${'0'.repeat(64)}`, chainEnabled: true }), 'n:yyyyn');
+  eq('masih memuat kontrak -> dilewati', res(job, verdict, runs, 'loading'), 's:yyyys');
+  eq('kontrak tak terbaca -> dilewati', res(job, verdict, runs, 'error'), 's:yyyys');
+  eq('hash on-chain beda -> gagal', res(job, verdict, runs, { onChain: `0x${'1'.repeat(64)}`, chainEnabled: true }), 'n:yyyyn');
+
+  // Pemalsuan: tiap satu diubah, pemeriksaan yang tepat harus menangkapnya.
+  const swapped = [...subset].reverse();
+  eq('subset diganti (undian diulang) -> subset gagal', res({ ...job, verification_subset: swapped }, { ...verdict, subset: swapped }, runs, on)[2], 'n');
+  eq('hit dipelintir (log bilang miss) -> hit gagal', res(job, verdict, runs.map((r, i) => (i === 0 ? { ...r, hit: !r.hit } : r)), on)[3], 'n');
+  eq('skor digelembungkan -> hit (jumlah) gagal', res(job, { ...verdict, score: score + 1 }, runs, on)[3], 'n');
+  eq('keputusan dibalik -> keputusan gagal', res(job, { ...verdict, decision: verdict.decision === 'release' ? 'refund' : 'release' }, runs, on)[4], 'n');
+  eq('verdict diubah setelah di-hash -> hash database gagal', res(job, { ...verdict, brand: 'Kopi Lain' }, runs, on)[5], 'n');
+  eq('log tidak lengkap -> hit dilewati, bukan gagal', res(job, verdict, runs.slice(1), on), 's:ysyyy');
+  const dm = decisionMath({ score: 2, of: 3, target: 3, n: 5 });
+  eq('decisionMath = sisi-sisi decide()', [dm.lhs, dm.rhs, dm.floor], [10, 9, -1]);
+}
+
+section('tx - klasifikasi error transaksi (error viem SUNGGUHAN)');
+{
+  const revert = (msg: string) => new ContractFunctionExecutionError(
+    new ContractFunctionRevertedError({ abi: geoEscrowAbi, functionName: 'acceptJob', message: msg }) as unknown as BaseError,
+    { abi: geoEscrowAbi, functionName: 'acceptJob', args: [1n], contractAddress: '0x0000000000000000000000000000000000000001' }
+  );
+  const rejected = new UserRejectedRequestError(new Error('User denied transaction signature'));
+
+  eq('user menolak -> rejected (bukan error)', classifyTxError(rejected, 'write').phase, 'rejected');
+  eq('menolak terbungkus berlapis -> tetap rejected', classifyTxError({ name: 'TransactionExecutionError', cause: { name: 'X', cause: rejected } }, 'write').phase, 'rejected');
+  eq('kode EIP-1193 4001 polos -> rejected', classifyTxError({ code: 4001, message: 'x' }, 'write').phase, 'rejected');
+  eq('menolak saat simulasi (switch dsb.) -> rejected', classifyTxError(rejected, 'simulate').phase, 'rejected');
+
+  const b = classifyTxError(revert('execution reverted: GEO: job not open'), 'simulate');
+  eq('revert saat simulasi -> blocked', b.phase, 'blocked');
+  check('blocked menyebut alasan kontrak TANPA awalan "execution reverted"', !!b.message?.includes('“GEO: job not open”') && !b.message.includes('execution reverted'), b.message);
+  check('blocked menegaskan tidak ada gas terpakai', !!b.message?.includes('tidak ada gas terpakai'));
+  eq('revert yang sama saat write -> failed (bukan blocked)', classifyTxError(revert('execution reverted: x'), 'write').phase, 'failed');
+
+  eq('saldo kurang -> failed + pesan saldo', classifyTxError(new InsufficientFundsError({ cause: new BaseError('x') }), 'simulate'), { phase: 'failed', message: TX_MSG.funds });
+  eq('akun berganti di tengah jalan -> pesan akun', classifyTxError({ name: 'ConnectorAccountNotFoundError' }, 'write').message, TX_MSG.account);
+  eq('chain berubah -> pesan jaringan', classifyTxError({ name: 'ConnectorChainMismatchError' }, 'write').message, TX_MSG.chain);
+
+  const u = classifyTxError(new WaitForTransactionReceiptTimeoutError({ hash: '0xabc' }), 'receipt', 120);
+  eq('receipt timeout -> unknown (JANGAN kirim ulang)', u.phase, 'unknown');
+  check('unknown menyebut batas waktu & peringatan kirim ganda', !!u.message?.includes('120 detik') && !!u.message.includes('dua kali'), u.message);
+  eq('error APA PUN saat receipt -> unknown, bukan failed', classifyTxError(new Error('socket hang up'), 'receipt').phase, 'unknown');
+
+  // Pesan tidak boleh membawa e.message mentah (A21): viem menaruh URL RPC di sana.
+  const leaky = { name: 'HttpRequestError', shortMessage: 'HTTP request failed.', message: 'HTTP request failed.\nURL: https://rpc.example/KUNCI-RAHASIA\nRequest body: {...}' };
+  const f = classifyTxError(leaky, 'write');
+  check('failed memakai shortMessage, bukan message mentah ber-URL', f.message === 'Transaksi gagal: HTTP request failed.' && !f.message.includes('KUNCI'), f.message);
+  eq('tanpa shortMessage -> pesan umum', classifyTxError(new Error('rahasia https://x/KUNCI'), 'write').message, 'Transaksi gagal: Kesalahan tak terduga');
+
+  check('isUserRejection: error biasa -> false', !isUserRejection(new Error('x')));
+}
+
+section('tx - siklus, sync, peran, konektor');
+{
+  eq('stepIndex berurutan', (['check', 'sign', 'confirm', 'after', 'sync', 'done', 'rejected'] as const).map(stepIndex), [0, 0, 2, 3, 3, 4, -1]);
+  check('fase sibuk = persis check/sign/confirm/after/sync',
+    (['idle', 'check', 'sign', 'confirm', 'after', 'sync', 'done', 'rejected', 'blocked', 'reverted', 'failed', 'unknown', 'sync_failed'] as const).filter(isBusy).join() === 'check,sign,confirm,after,sync');
+
+  eq('sync RATE_LIMITED percobaan pertama -> ulangi', syncDecision('RATE_LIMITED', 0), 'retry');
+  eq('sync RATE_LIMITED percobaan kedua -> berhenti', syncDecision('RATE_LIMITED', 1), 'give_up');
+  eq('sync NOT_FOUND -> berhenti', syncDecision('NOT_FOUND', 0), 'give_up');
+  eq('sync jaringan putus -> berhenti', syncDecision('NETWORK', 0), 'give_up');
+
+  const job = { client_addr: '0xabcdef0000000000000000000000000000000001', freelancer_addr: '0xabcdef0000000000000000000000000000000002' };
+  eq('client, alamat CHECKSUM dari wallet', relationToJob(job, '0xABCDEF0000000000000000000000000000000001'), 'client');
+  eq('freelancer', relationToJob(job, '0xabcdef0000000000000000000000000000000002'), 'freelancer');
+  eq('arbiter (bukan pihak di job)', relationToJob(job, '0xAAAA000000000000000000000000000000000009', '0xaaaa000000000000000000000000000000000009'), 'arbiter');
+  eq('orang lain -> null', relationToJob(job, '0x9999000000000000000000000000000000000009'), null);
+  eq('tanpa wallet -> null', relationToJob(job, undefined), null);
+  eq('freelancer kosong tidak cocok dengan apa pun', relationToJob({ ...job, freelancer_addr: null }, ''), null);
+  check('sameAddr menolak null/kosong', !sameAddr(null, null) && !sameAddr('', ''));
+
+  const C = (id: string, type = 'injected') => ({ id, type });
+  eq('EIP-6963 ada -> cadangan injected disembunyikan (tanpa duplikat MetaMask)', pickConnectors([C('injected'), C('io.metamask'), C('com.coinbase.wallet')], true).map((c) => c.id), ['io.metamask', 'com.coinbase.wallet']);
+  eq('tanpa EIP-6963, ada window.ethereum -> cadangan', pickConnectors([C('injected')], true).map((c) => c.id), ['injected']);
+  eq('tanpa wallet sama sekali -> kosong (modal: ajakan memasang)', pickConnectors([C('injected')], false), []);
+  eq('konektor non-injected tidak ikut', pickConnectors([C('injected'), C('walletConnect', 'walletConnect')], false), []);
+
+  eq('chainName dikenal', chainName(1), 'Ethereum Mainnet');
+  eq('chainName tak dikenal -> chain ID', chainName(31337), 'jaringan dengan chain ID 31337');
+}
+
+section('create - form MENCERMINKAN validasi backend (POST /api/jobs)');
+{
+  const now = Date.now();
+  const future = toLocalInput(now + 2 * 86_400_000);
+  const draft = (p: Partial<Draft> = {}): Draft => ({ brand: '  Kopi Rasa ', brief: '', queries: 'Kopi enak?\r\n\n  Roastery Jogja? \nBiji arabika lokal?', target: '2', budget: '0,003', deadline: future, multiEngine: false, ...p });
+
+  eq('parseQueries: trim, buang baris kosong & \\r', parseQueries(' a \r\n\n b\r\nc '), ['a', 'b', 'c']);
+  eq('parseBudgetTbnb koma desimal', parseBudgetTbnb('0,003')?.toString(), '3000000000000000');
+  eq('parseBudgetTbnb titik desimal', parseBudgetTbnb('1.5')?.toString(), '1500000000000000000');
+  for (const bad of ['', 'abc', '1e3', '-1', '0.0000000000000000001', '1.2.3', '١']) eq(`parseBudgetTbnb "${bad}" -> null`, parseBudgetTbnb(bad), null);
+
+  const ok = checkDraft(draft(), now);
+  eq('draf sah -> tanpa error', ok.errors, {});
+  eq('brand di-trim', ok.brand, 'Kopi Rasa');
+
+  const errOf = (p: Partial<Draft>, bal?: bigint) => Object.keys(checkDraft(draft(p), now, bal).errors);
+  eq('brand kosong', errOf({ brand: '   ' }), ['brand']);
+  eq('brand > 100', errOf({ brand: 'x'.repeat(101) }), ['brand']);
+  eq('brand dengan baris baru (hash kanonik rusak)', errOf({ brand: 'A\nB' }), ['brand']);
+  eq('brief > 1000', errOf({ brief: 'x'.repeat(1001) }), ['brief']);
+  eq('2 pertanyaan', errOf({ queries: 'a\nb', target: '1' }), ['queries']);
+  eq('7 pertanyaan (target 2 tetap sah)', errOf({ queries: 'a\nb\nc\nd\ne\nf\ng' }), ['queries']);
+  eq('pertanyaan kembar beda huruf', errOf({ queries: 'Kopi?\nkopi?\nTeh?' }), ['queries']);
+  eq('pertanyaan > 300', errOf({ queries: `a\nb\n${'x'.repeat(301)}` }), ['queries']);
+  for (const t of ['0', '4', '1.5', 'abc', '']) eq(`target "${t}" dari 3`, errOf({ target: t }), ['target']);
+  eq('budget nol', errOf({ budget: '0' }), ['budget']);
+  eq('budget >= saldo', errOf({ budget: '1' }, 1_000_000_000_000_000_000n), ['budget']);
+  eq('budget < saldo -> sah', errOf({ budget: '0,5' }, 1_000_000_000_000_000_000n), []);
+  eq('batas ambil 5 menit lagi -> DITOLAK (§A7)', errOf({ deadline: toLocalInput(now + 5 * 60_000) }), ['deadline']);
+  eq('batas ambil kosong', errOf({ deadline: '' }), ['deadline']);
+  eq('batas ambil 61 menit lagi -> sah', errOf({ deadline: toLocalInput(now + 61 * 60_000 + 60_000) }), []);
+
+  // Cermin sungguhan: body yang dikirim FE → validator & perhitungan hash
+  // PERSIS seperti app/api/jobs/route.ts.
+  const addr = '0xAbC0000000000000000000000000000000000001';
+  const snap = makeSnapshot(ok, false, addr, '0x41462F3092Ca66b7B3d9c8b20337793e2756cC46');
+  const body = metadataBody(snap, 0);
+  const brand = requireText(body.brand, 'Nama brand', LIMITS.brand);
+  const pool = requireQueryPool(body.queries, body.targetCount);
+  check('backend menerima jobId 0 (§A9)', requireJobId(body.jobId) === 0);
+  check('backend menerima alamat client', requireAddress(body.clientAddr, 'clientAddr') === addr.toLowerCase());
+  check('backend menerima budgetWei string', requireWei(body.budgetWei, 'budgetWei') === '3000000000000000');
+  check('backend menerima acceptDeadline', requireFutureDate(body.acceptDeadline, 'acceptDeadline') === snap.deadlineIso);
+  eq('hash yang dihitung SERVER == hash yang dikirim ke kontrak',
+    queryPoolHash({ brand, queries: pool.queries, targetCount: pool.targetCount, multiEngine: body.multiEngine === true }), snap.queryPoolHash);
+  eq('deadline ISO = detik on-chain × 1000 (tanpa milidetik)', snap.deadlineIso, new Date(Number(snap.deadlineSec) * 1000).toISOString());
+  check('detik on-chain dari Date yang SAMA dengan input', Number(snap.deadlineSec) === Math.floor(ok.deadline!.getTime() / 1000));
+  eq('multiEngine ikut mengubah hash', makeSnapshot(ok, true, addr, '0x1').queryPoolHash !== snap.queryPoolHash, true);
+
+  // Arah sebaliknya: yang DITOLAK FE juga ditolak backend (tidak ada yang lolos lalu 400 setelah tx).
+  const pools: [string, string][] = [['a\nb', '1'], ['a\nb\nc\nd\ne\nf\ng', '2'], ['Kopi?\nkopi?\nTeh?', '1'], ['a\nb\nc', '4'], ['a\nb\nc', '0']];
+  for (const [q, t] of pools) {
+    const fe = checkDraft(draft({ queries: q, target: t }), now).errors;
+    let be = false;
+    try { requireQueryPool(parseQueries(q), Number(t)); } catch { be = true; }
+    check(`FE & backend sepakat untuk ${JSON.stringify(q.split('\n').length + ' pertanyaan, target ' + t)}`, (!!fe.queries || !!fe.target) === be);
+  }
+}
+
+section('create - jobId dari event JobCreated di receipt');
+{
+  const contract = '0x41462F3092Ca66b7B3d9c8b20337793e2756cC46';
+  const client = '0xabc0000000000000000000000000000000000001';
+  const h = queryPoolHash({ brand: 'Kopi', queries: ['a', 'b', 'c'], targetCount: 2, multiEngine: false });
+  const s = { contract, clientAddr: client, queryPoolHash: h, budgetWei: '3000000000000000' };
+  const log = (jobId: bigint, o: { address?: string; client?: string; hash?: `0x${string}`; budget?: bigint } = {}) => ({
+    address: o.address ?? contract,
+    topics: encodeEventTopics({ abi: geoEscrowAbi, eventName: 'JobCreated', args: { jobId, client: (o.client ?? client) as `0x${string}` } }),
+    data: encodeAbiParameters([{ type: 'uint256' }, { type: 'bytes32' }, { type: 'uint256' }], [o.budget ?? 3000000000000000n, o.hash ?? h, 1800000000n]),
+    blockHash: null, blockNumber: null, logIndex: null, transactionHash: null, transactionIndex: null, removed: false,
+  }) as unknown as Log;
+
+  eq('job PERTAMA -> jobId 0, bukan dilewati (§A9)', jobIdFromReceipt([log(0n)], s), 0);
+  eq('jobId lain', jobIdFromReceipt([log(7n)], s), 7);
+  eq('alamat kontrak checksum vs huruf kecil tetap cocok', jobIdFromReceipt([log(3n, { address: contract.toLowerCase() })], s), 3);
+  throws('event dari kontrak LAIN diabaikan -> tidak ada event', () => jobIdFromReceipt([log(1n, { address: '0x0000000000000000000000000000000000000009' })], s));
+  throws('client berbeda -> berhenti', () => jobIdFromReceipt([log(1n, { client: '0x0000000000000000000000000000000000000002' })], s));
+  throws('queryPoolHash berbeda -> berhenti', () => jobIdFromReceipt([log(1n, { hash: `0x${'11'.repeat(32)}` })], s));
+  throws('budget berbeda -> berhenti', () => jobIdFromReceipt([log(1n, { budget: 1n })], s));
+  throws('dua event JobCreated -> berhenti', () => jobIdFromReceipt([log(1n), log(2n)], s));
+  throws('jobId di atas 2^53 -> berhenti', () => jobIdFromReceipt([log(2n ** 60n)], s));
+  const pd = (hash: string, clientAddr: string, at = 1) => ({ hash, snapshot: { clientAddr, contract }, at });
+  const v2 = (...ps: unknown[]) => JSON.stringify(ps);
+  eq('parsePending: milik wallet & kontrak lain -> kosong', parsePending({ v2: v2(pd('0x1', '0xother')), v1: null }, client, contract), []);
+  eq('parsePending: rusak -> kosong, bukan melempar', parsePending({ v2: '{bukan json', v1: '[' }, client, contract), []);
+  eq('parsePending: cocok (tanpa membedakan huruf)', parsePending({ v2: v2(pd('0x1', client.toUpperCase().replace('0X', '0x'))), v1: null }, client, contract.toLowerCase()).length, 1);
+  // Temuan audit S-14: kontrak kedua dulu MENIMPA catatan pertama.
+  eq('parsePending: DUA kontrak tertunda sama-sama tersimpan, terlama dulu',
+    parsePending({ v2: v2(pd('0x2', client, 20), pd('0x1', client, 10)), v1: null }, client, contract).map((p) => p.hash), ['0x1', '0x2']);
+  eq('parsePending: catatan v1 (satu slot lama) ikut terbaca',
+    parsePending({ v2: v2(pd('0x2', client, 20)), v1: JSON.stringify(pd('0x1', client, 10)) }, client, contract).map((p) => p.hash), ['0x1', '0x2']);
+  eq('parsePendingAll: hash sama di v1 & v2 tidak dobel', parsePendingAll({ v2: v2(pd('0x1', client)), v1: JSON.stringify(pd('0x1', client)) }).length, 1);
+  eq('parsePendingAll: wallet lain TIDAK dibuang (hanya disaring saat tampil)', parsePendingAll({ v2: v2(pd('0x1', client), pd('0x9', '0xother')), v1: null }).length, 2);
+}
+
+section('deliverable-lock - konten terkunci ke hash ON-CHAIN, bukan kiriman pertama');
+{
+  const A = `0x${'aa'.repeat(32)}`, B = `0x${'bb'.repeat(32)}`, Z = `0x${'00'.repeat(32)}`;
+  const L = (o: Parameters<typeof lockedDeliverableHash>[0]) => lockedDeliverableHash(o);
+  eq('chain aktif, belum ditandatangani (nol) -> bebas', L({ chainEnabled: true, onChainHash: Z, dbHash: A }), null);
+  eq('chain aktif, belum terbaca -> bebas', L({ chainEnabled: true, onChainHash: null, dbHash: A }), null);
+  eq('chain aktif: hash DB (kiriman pertama) DIABAIKAN', L({ chainEnabled: true, onChainHash: undefined, dbHash: B }), null);
+  eq('chain aktif, sudah ditandatangani -> terkunci ke hash on-chain', L({ chainEnabled: true, onChainHash: A.toUpperCase().replace('0X', '0x'), dbHash: B }), A);
+  eq('chain mati -> perilaku lama (hash DB)', L({ chainEnabled: false, onChainHash: A, dbHash: B }), B);
+  eq('chain mati, DB kosong -> bebas', L({ chainEnabled: false, onChainHash: null, dbHash: null }), null);
+  check('revisi sebelum tanda tangan diterima', contentAllowed(null, B));
+  check('setelah tanda tangan: konten SAMA diterima (huruf besar/kecil)', contentAllowed(A, A.toUpperCase().replace('0X', '0x')));
+  check('setelah tanda tangan: konten LAIN ditolak', !contentAllowed(A, B));
+  check('isEmptyHash: nol / null / kosong', isEmptyHash(Z) && isEmptyHash(null) && isEmptyHash('') && !isEmptyHash(A));
+}
+
+section('fase 7 - penjaga ambil kontrak & kirim hasil');
+{
+  const client = '0xAbC0000000000000000000000000000000000001';
+  const fl = '0xabc0000000000000000000000000000000000002';
+  const other = '0xABC0000000000000000000000000000000000003';
+  const roles = { oracle: '0xa87d9c3304b13a0325ae91a05d2322f4c8f3a139', arbiter: '0xdce01c269c513246b7dcc06f1ae84de022048df7' };
+  const now = Date.parse('2026-09-26T00:00:00Z');
+  const open = { status: 'Open' as const, accept_deadline: '2026-09-28T00:00:00Z', client_addr: client.toLowerCase() };
+  const reason = (a: { ok: boolean; reason?: string }) => (a.ok ? 'ok' : a.reason!);
+  eq('orang lain, terbuka -> boleh', reason(acceptGuard(open, 'open', other, roles, now)), 'ok');
+  eq('belum terhubung -> ok (TxButton menawarkan "Hubungkan")', reason(acceptGuard(open, 'open', undefined, roles, now)), 'ok');
+  check('client sendiri (checksum vs huruf kecil) -> DITOLAK', reason(acceptGuard(open, 'open', client, roles, now)).includes('client kontrak ini'));
+  check('arbiter -> ditolak', reason(acceptGuard(open, 'open', roles.arbiter.toUpperCase().replace('0X', '0x'), roles, now)).includes('arbiter'));
+  check('oracle -> ditolak', reason(acceptGuard(open, 'open', roles.oracle, roles, now)).includes('Oracle'));
+  check('baseline belum selesai -> ditolak', reason(acceptGuard(open, 'baseline_running', other, roles, now)).includes('baseline'));
+  check('baseline gagal -> ditolak', reason(acceptGuard(open, 'baseline_failed', other, roles, now)).includes('Baseline gagal'));
+  check('batas ambil lewat -> ditolak', reason(acceptGuard({ ...open, accept_deadline: '2026-09-25T00:00:00Z' }, 'open', other, roles, now)).includes('lewat'));
+  check('sudah diambil -> ditolak', reason(acceptGuard({ ...open, status: 'Accepted' }, 'in_progress', other, roles, now)).includes('tidak terbuka'));
+
+  const acc = { status: 'Accepted' as const, freelancer_addr: fl };
+  eq('freelancer (checksum) -> boleh kirim', reason(submitGuard(acc, fl.toUpperCase().replace('0X', '0x'))), 'ok');
+  check('orang lain -> tidak boleh kirim', reason(submitGuard(acc, other)).includes('Hanya freelancer'));
+  check('sudah Submitted -> tidak boleh kirim ulang', reason(submitGuard({ ...acc, status: 'Submitted' }, fl)).includes('sedang dikerjakan'));
+
+  // Aturan structural yang dipakai form = fungsi server itu sendiri.
+  eq('structural: < 40 karakter', checkStructural('Kopi Lereng Merapi enak', 'Kopi Lereng Merapi').reason, 'too_short');
+  eq('structural: tanpa brand', checkStructural('x'.repeat(60), 'Kopi Lereng Merapi').reason, 'brand_not_mentioned');
+  eq('structural: lolos', checkStructural('Kopi Lereng Merapi adalah roastery arabika dari Sleman, Yogyakarta.', 'Kopi Lereng Merapi').pass, true);
+}
+
+section('format - saldo wallet ringkas (dipotong ke BAWAH)');
+{
+  eq('18 digit -> 4 desimal, dipotong bukan dibulatkan', formatTBNBShort('4610820789818713089'), '4.6108 tBNB');
+  eq('0.99999 -> 0.9999, BUKAN 1', formatTBNBShort('999990000000000000'), '0.9999 tBNB');
+  eq('angka bulat', formatTBNBShort('2000000000000000000'), '2 tBNB');
+  eq('nol di belakang dibuang', formatTBNBShort('1500000000000000000'), '1.5 tBNB');
+  eq('nol tepat -> 0', formatTBNBShort(0n), '0 tBNB');
+  eq('debu positif -> "< 0.0001", bukan 0', formatTBNBShort('12345'), '< 0.0001 tBNB');
+  eq('tepat 0.0001', formatTBNBShort('100000000000000'), '0.0001 tBNB');
+  eq('di atas 2^53 tetap tepat', formatTBNBShort('123456789012345678901234'), '123456.789 tBNB');
+  eq('desimal lain', formatTBNBShort('4610820789818713089', 2), '4.61 tBNB');
+}
+
+section('ledger - rincian per wallet');
+{
+  const W = '0xAbC0000000000000000000000000000000000001';
+  const j = (status: Job['status'], client: string, fl: string | null, budget: string, rel: string, bond: string | null) =>
+    ({ status, client_addr: client, freelancer_addr: fl, budget_wei: budget, structural_released_wei: rel, bond_wei: bond });
+  const w = W.toLowerCase(), other = '0x0000000000000000000000000000000000000009';
+  const jobs = [
+    j('Open', w, null, '1000', '0', null),                 // client: 1000
+    j('Verifying', w, other, '1000', '200', '50'),         // client: 800
+    j('Accepted', other, w, '4000', '0', '200'),           // freelancer: bond 200
+    j('ReleasedFull', w, other, '9999', '0', '1'),          // selesai: tidak dihitung
+    j('Refunded', other, w, '9999', '0', '7'),              // selesai: tidak dihitung
+  ];
+  eq('lockedFor: client (budget − struktural) + freelancer (bond), alamat checksum', lockedFor(jobs, W).toString(), '2000');
+  eq('lockedFor: wallet lain = client job Accepted (4000) + bond freelancer di Verifying (50)', lockedFor(jobs, other).toString(), '4050');
+  const rows = [
+    { type: 'final_release', amount_wei: '750', to_addr: w }, // sisa 700 + bond 50
+    { type: 'bond_return', amount_wei: '50', to_addr: w },   // rincian, sudah di atas
+    { type: 'deposit', amount_wei: '1000', to_addr: w },     // IN, bukan diterima
+    { type: 'final_refund', amount_wei: '300', to_addr: other },
+    { type: 'structural_release', amount_wei: null, to_addr: w },
+  ];
+  eq('receivedBy: hanya baris OUT ke wallet itu, bond tidak dua kali', receivedBy(rows, W).toString(), '750');
+}
+
+// ---------------------------------------------------------
+section('indexer - settled_by, catatan eskalasi, bond sebagai rincian (Tahap 0 audit)');
+{
+  // keBarisActivity() membaca alamat kontrak dari env; nilai apa pun cukup di sini.
+  process.env.GEO_ESCROW_ADDRESS ??= '0x41462F3092Ca66b7B3d9c8b20337793e2756cC46';
+  const lg = (eventName: string, args: Record<string, unknown>) =>
+    ({ eventName, args, blockNumber: 1n, logIndex: 0, transactionHash: `0x${'ab'.repeat(32)}` }) as unknown as LogTerurai;
+  eq('settledByDari: tanpa Settled -> null', settledByDari([lg('JobCreated', {}), lg('BondSettled', {})]), null);
+  eq('settledByDari: Settled oleh Oracle', settledByDari([lg('Settled', { byArbiter: false })]), 'oracle');
+  eq('settledByDari: Settled oleh arbiter (S-11: dulu tampil sebagai Oracle)', settledByDari([lg('ArbiterDecided', {}), lg('Settled', { byArbiter: true })]), 'arbiter');
+  const esc = keBarisActivity(lg('DisputeRaised', { verdictHash: `0x${'00'.repeat(32)}` }), null);
+  check('DisputeRaised hash nol = eskalasi waktu, bukan "zona abu"', !!esc?.note?.includes('batas waktu') && !esc.note.includes('zona abu'), esc?.note ?? '');
+  const zona = keBarisActivity(lg('DisputeRaised', { verdictHash: `0x${'12'.repeat(32)}` }), null);
+  check('DisputeRaised dari Oracle tetap "zona abu"', !!zona?.note?.includes('zona abu'), zona?.note ?? '');
+  const slash = keBarisActivity(lg('BondSettled', { recipient: '0x0000000000000000000000000000000000000002', amount: 50n, slashed: true }), null);
+  check('BondSettled -> bond_slash, dan NETRAL di ledger (S-16)', slash?.type === 'bond_slash' && (LEDGER_NEUTRAL as readonly string[]).includes('bond_slash'));
+  check('bond_return juga netral, tidak lagi OUT', (LEDGER_NEUTRAL as readonly string[]).includes('bond_return') && !(LEDGER_OUT as readonly string[]).includes('bond_return'));
+  check('isHashMismatch: cocok dengan pesan server', isHashMismatch({ last_error: HASH_MISMATCH_ERROR }));
+  check('isHashMismatch: gangguan biasa -> false', !isHashMismatch({ last_error: 'Worker timeout -- silakan coba lagi' }) && !isHashMismatch({ last_error: null }));
+}
+
+// ---------------------------------------------------------
 // lib/api.ts memakai fetch — diuji dengan fetch palsu, tanpa jaringan.
 async function checkApiClient() {
   section('api - klien amplop respons');
@@ -335,8 +869,85 @@ async function checkApiClient() {
   }
 }
 
+// POST /api/jobs idempoten — fetch palsu, tanpa jaringan.
+async function checkSaveMetadata() {
+  section('create - simpan metadata idempoten');
+  const realFetch = globalThis.fetch;
+  const h = queryPoolHash({ brand: 'Kopi', queries: ['a', 'b', 'c'], targetCount: 2, multiEngine: false });
+  const s = { clientAddr: '0xabc0000000000000000000000000000000000001', contract: '0x1', brand: 'Kopi', brief: null, queries: ['a', 'b', 'c'], targetCount: 2, multiEngine: false, budgetWei: '1', deadlineSec: '1800000000', deadlineIso: new Date(1800000000 * 1000).toISOString(), queryPoolHash: h };
+  const calls: string[] = [];
+  const stub = (post: [number, unknown], get: [number, unknown]) => {
+    globalThis.fetch = (async (url: string, init?: RequestInit) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      const [st, body] = init?.method === 'POST' ? post : get;
+      return new Response(JSON.stringify(body), { status: st });
+    }) as typeof fetch;
+  };
+  const resolves = async (name: string, fn: () => Promise<unknown>) => { try { await fn(); check(name, true); } catch (e) { check(name, false, String(e)); } };
+  const rejects = async (name: string, fn: () => Promise<unknown>) => { try { await fn(); check(name, false, 'tidak melempar'); } catch { check(name, true); } };
+  try {
+    stub([200, { ok: true, jobId: 0 }], [404, {}]);
+    await resolves('POST sukses -> selesai', () => saveJobMetadata(s, 0));
+
+    stub([400, { ok: false, code: 'VALIDATION', error: 'Job 0 sudah terdaftar' }], [200, { ok: true, job: { query_pool_hash: h.toUpperCase().replace('0X', '0x') } }]);
+    await resolves('POST ulang "sudah terdaftar" + job di DB hash SAMA -> dianggap sukses', () => saveJobMetadata(s, 0));
+
+    stub([400, { ok: false, code: 'VALIDATION', error: 'Job 0 sudah terdaftar' }], [200, { ok: true, job: { query_pool_hash: `0x${'22'.repeat(32)}` } }]);
+    await rejects('job di DB hash BERBEDA -> gagal (bukan menimpa)', () => saveJobMetadata(s, 0));
+
+    stub([400, { ok: false, code: 'HASH_MISMATCH', error: 'Data tidak cocok' }], [404, { ok: false, code: 'NOT_FOUND', error: 'x' }]);
+    calls.length = 0;
+    await rejects('HASH_MISMATCH -> gagal, tidak diulang', () => saveJobMetadata(s, 0));
+    eq('HASH_MISMATCH: satu POST + satu GET pemeriksa', calls, ['POST /api/jobs', 'GET /api/jobs/0']);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+}
+
+// POST /deliverable: revisi sebelum tanda tangan (sync lalu ulang) — fetch palsu.
+async function checkDeliverablePost() {
+  section('fase 7 - kirim konten (revisi, rate limit, terkunci on-chain)');
+  const realFetch = globalThis.fetch;
+  const realTimeout = globalThis.setTimeout;
+  // Lewati jeda 2,1 dtk supaya uji tetap cepat.
+  globalThis.setTimeout = ((fn: () => void) => { fn(); return 0; }) as unknown as typeof setTimeout;
+  const H = `0x${'ab'.repeat(32)}`;
+  const run = async (script: [number, unknown][]) => {
+    const calls: string[] = [];
+    let i = 0;
+    globalThis.fetch = (async (url: string) => {
+      calls.push(String(url).replace(/^.*\/api/, ''));
+      const [st, body] = script[Math.min(i++, script.length - 1)];
+      return new Response(JSON.stringify(body), { status: st });
+    }) as typeof fetch;
+    let res: unknown, err: unknown;
+    try { res = await postDeliverable(0, 'isi'); } catch (e) { err = e; }
+    return { calls, res, err };
+  };
+  const okBody = { ok: true, deliverableHash: H, structuralPass: true, length: 3 };
+  const mismatch = { ok: false, code: 'HASH_MISMATCH', error: 'x' };
+  try {
+    let r = await run([[200, okBody]]);
+    eq('sukses langsung: satu POST', r.calls, ['/jobs/0/deliverable']);
+    eq('hash dari respons server', (r.res as { hash: string }).hash, H);
+
+    r = await run([[400, mismatch]]);
+    check('HASH_MISMATCH (terkunci on-chain) -> pesan jelas', r.err instanceof Error && (r.err as Error).message.includes('terkunci on-chain'), String(r.err));
+    eq('HASH_MISMATCH tidak diulang & tidak memicu sync', r.calls, ['/jobs/0/deliverable']);
+
+    r = await run([[429, { ok: false, code: 'RATE_LIMITED', error: 'x' }], [200, okBody]]);
+    eq('RATE_LIMITED -> ulang sekali', r.calls, ['/jobs/0/deliverable', '/jobs/0/deliverable']);
+
+    r = await run([[422, { ok: false, code: 'STRUCTURAL_FAILED', error: 'Konten terlalu pendek (minimal 40 karakter, dikirim 3)' }]]);
+    check('STRUCTURAL_FAILED -> pesan server diteruskan, tanpa ulang', r.err instanceof ApiClientError && (r.err as ApiClientError).message.includes('minimal 40') && r.calls.length === 1);
+  } finally {
+    globalThis.fetch = realFetch;
+    globalThis.setTimeout = realTimeout;
+  }
+}
+
 // ---------------------------------------------------------
-checkApiClient().then(() => {
+checkApiClient().then(checkSaveMetadata).then(checkDeliverablePost).then(() => {
   console.log('\n' + '-'.repeat(46));
   console.log(`  lulus: ${pass}   gagal: ${fail}`);
   process.exit(fail ? 1 : 0);

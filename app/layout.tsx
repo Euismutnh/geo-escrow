@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { JetBrains_Mono, Plus_Jakarta_Sans } from 'next/font/google';
 import { Shell } from '@/components/shell/Shell';
+import { Providers } from './providers';
 import './globals.css';
 
 /*
@@ -22,8 +23,13 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<'/'>) {
   return (
     <html lang="id" className={`${jakarta.variable} ${jetbrains.variable}`}>
-      <body>
-        <Shell>{children}</Shell>
+      {/* Ekstensi browser (Grammarly, dsb.) menyisipkan atribut ke <body>
+          sebelum React hidrasi. suppressHydrationWarning hanya mengabaikan
+          perbedaan ATRIBUT di tag ini saja — anak-anaknya tetap diperiksa. */}
+      <body suppressHydrationWarning>
+        <Providers>
+          <Shell>{children}</Shell>
+        </Providers>
       </body>
     </html>
   );

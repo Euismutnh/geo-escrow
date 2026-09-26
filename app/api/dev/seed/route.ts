@@ -317,7 +317,8 @@ export const POST = handler(async () => {
       addActivity(s, 'structural_release', ((budget * 20n) / 100n).toString(), null, s.freelancer_addr ?? null, 'Structural check lolos');
     }
     if (s.status === 'ReleasedFull') {
-      addActivity(s, 'final_release', ((budget * 80n) / 100n).toString(), null, s.freelancer_addr ?? null, 'Target tercapai - dana cair');
+      // Sama seperti kontrak: sisa budget + bond dalam satu transfer; bond_return hanya rincian.
+      addActivity(s, 'final_release', ((budget * 80n) / 100n + (budget * 5n) / 100n).toString(), null, s.freelancer_addr ?? null, 'Target tercapai - sisa budget + bond cair');
       addActivity(s, 'bond_return', ((budget * 5n) / 100n).toString(), null, s.freelancer_addr ?? null, 'Bond freelancer dikembalikan');
     }
   }

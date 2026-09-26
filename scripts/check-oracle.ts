@@ -7,6 +7,9 @@
 import { systemPrompt } from '../lib/oracle/prompt';
 import { mockProvider } from '../lib/oracle/mock';
 import { textHitsBrand, enginesFor, provider, OracleError } from '../lib/oracle';
+import { textHitsBrand as textHitsBrandMurni, splitByBrand } from '../lib/brand-match';
+import { MOCK_ENGINES, CLAUDE_ENGINES, engineLabel } from '../lib/oracle/engines';
+import { claudeProvider } from '../lib/oracle/claude';
 import type { OracleRequest } from '../lib/oracle/types';
 import { mapWithLimit } from '../lib/oracle/runner';
 
@@ -66,6 +69,35 @@ async function main() {
   // Kasus yang dulu SELALU gagal karena \b dipasang di kedua sisi:
   check('brand diakhiri non-kata ("Acme!")', textHitsBrand('kami pakai Acme! di sini', 'Acme!'));
   check('brand diawali non-kata ("&Co")', textHitsBrand('merek &Co terkenal', '&Co'));
+
+  // ───────────────────────────────────────────────────────
+  section('brand-match - modul murni yang dipakai FE & BE');
+  check('re-export lib/oracle = fungsi yang sama persis', textHitsBrand === textHitsBrandMurni);
+  {
+    const texts = ['Saya suka Root & Bloom sekali.', 'coba ROOT & BLOOM ya', 'Kopinya enak', 'Kopi Rasa enak, Kopi lagi',
+      'kami pakai Acme! di sini', 'merek &Co terkenal', 'produk P.T. Maju hadir', 'tidak ada apa-apa', '', 'Kopi'];
+    const brands = ['Root & Bloom', 'Kopi', 'Acme!', '&Co', 'P.T. Maju', '', '  Kopi  ', '(tanda) [aneh]'];
+    let beda = 0, rusak = 0;
+    for (const t of texts) for (const b of brands) {
+      const parts = splitByBrand(t, b);
+      if (parts.some((x) => x.hit) !== textHitsBrand(t, b)) beda++;
+      if (parts.map((x) => x.text).join('') !== t) rusak++;
+    }
+    check(`splitByBrand menyorot <=> textHitsBrand bilang disebut (${texts.length * brands.length} pasangan)`, beda === 0, beda + ' berbeda');
+    check('splitByBrand tidak kehilangan/menambah karakter', rusak === 0, rusak + ' rusak');
+    const k = splitByBrand('Kopi Rasa enak, Kopi lagi', 'Kopi');
+    check('semua kemunculan disorot (bukan hanya yang pertama)', k.filter((x) => x.hit).length === 2);
+    check('"Kopinya" tidak disorot', !splitByBrand('Kopinya enak', 'Kopi').some((x) => x.hit));
+  }
+
+  // ───────────────────────────────────────────────────────
+  section('engines - label FE berasal dari objek yang sama dengan provider');
+  check('mockProvider.engines = MOCK_ENGINES', JSON.stringify(mockProvider.engines) === JSON.stringify(MOCK_ENGINES));
+  check('claudeProvider.engines = CLAUDE_ENGINES', JSON.stringify(claudeProvider.engines) === JSON.stringify(CLAUDE_ENGINES));
+  check('engineLabel(mock-a) = Mock A', engineLabel('mock-a') === 'Mock A');
+  check('engineLabel(claude-naratif) = Claude (naratif)', engineLabel('claude-naratif') === 'Claude (naratif)');
+  check('id tak dikenal ditampilkan apa adanya', engineLabel('gemini-x') === 'gemini-x');
+  check('tidak ada label "Mesin"', ![...MOCK_ENGINES, ...CLAUDE_ENGINES].some((e) => /mesin/i.test(e.name)));
 
   // ───────────────────────────────────────────────────────
   section('mock - deterministik & bisa menghasilkan hit');

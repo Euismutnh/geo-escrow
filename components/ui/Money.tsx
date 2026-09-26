@@ -1,4 +1,4 @@
-import { formatTBNB } from '@/lib/format';
+import { formatTBNB, formatTBNBShort } from '@/lib/format';
 
 const SUFFIX = ' tBNB';
 
@@ -12,11 +12,12 @@ const SUFFIX = ' tBNB';
  * Font mono sengaja TIDAK dipakai untuk uang — mono hanya untuk alamat,
  * hash, dan id teknis (aturan tulisan & angka, blueprint Fase 1).
  */
-export function Money({ wei }: { wei: string | bigint }) {
-  const s = formatTBNB(wei);
+export function Money({ wei, short }: { wei: string | bigint; /** Saldo wallet: diringkas, nilai penuh di tooltip. */ short?: boolean }) {
+  const full = formatTBNB(wei);
+  const s = short ? formatTBNBShort(wei) : full;
   const value = s.endsWith(SUFFIX) ? s.slice(0, -SUFFIX.length) : s;
   return (
-    <span className="num">
+    <span className="num" title={short && s !== full ? full : undefined}>
       {value}
       <span className="u">tBNB</span>
     </span>

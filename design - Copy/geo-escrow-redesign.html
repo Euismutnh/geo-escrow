@@ -1,0 +1,2285 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>GEO Escrow — Mockup Redesign · Fase 1</title>
+<!-- Di Fase 2 font ini pindah ke next/font/google (self-host). <link> hanya untuk mockup. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* =====================================================================
+   GEO Escrow — mockup redesign Fase 1 · arah: editorial / fintech bersih
+   ---------------------------------------------------------------------
+   Token di :root adalah KONTRAK untuk Fase 2. Angka-angka ini dipindah
+   apa adanya ke @theme di app/globals.css — bukan ditafsir ulang.
+   Nama kelas badge (st-mint, st-violet, ...) sengaja sama dengan
+   UI_STATUS_META.cls di lib/status.ts supaya FE memetakannya langsung.
+   ===================================================================== */
+:root{
+  /* netral */
+  --paper:#F8F8F6; --card:#FFFFFF; --sunken:#F3F4F2; --hover:#F1F2EF; --active:#EBEDEA;
+  --ink:#16181D; --ink-2:#30343B; --muted:#4F565F; --faint:#6B727B;   /* kontras di kanvas: 17 · 7,0 · 4,6 — semua lolos AA */
+  --line:#E4E7EA; --line-2:#D5D9DE; --line-3:#C3C8CF;
+  /* tujuh peran warna — hue prototipe, porsi diturunkan jadi aksen */
+  --chain:#2947C4;  --chain-hi:#2140B0;  --chain-soft:#EEF1FC;  --chain-line:#C9D3F5;
+  --verify:#1B6B36; --verify-hi:#155A2C; --verify-soft:#ECF6EF; --verify-line:#C2E0CE;
+  --signal:#B5590C;                      --signal-soft:#FDF3E7; --signal-line:#F0D5B4;
+  --warn:#8A6A05;                        --warn-soft:#FCF7E6;   --warn-line:#EBDCA8;
+  --danger:#A5262F; --danger-hi:#8E1F28; --danger-soft:#FCEEEF; --danger-line:#F0C9CC;
+  /* bentuk */
+  --r:10px; --r-sm:7px; --r-lg:14px;
+  --sh-1:0 1px 2px rgba(22,24,29,.05);
+  --sh-2:0 1px 2px rgba(22,24,29,.04),0 8px 20px -8px rgba(22,24,29,.12);
+  --sh-pop:0 20px 48px -16px rgba(22,24,29,.30),0 2px 8px rgba(22,24,29,.06);
+  --ring-c:rgba(41,71,196,.22); --ring:0 0 0 3px var(--ring-c);
+  /* peran MEREK — satu-satunya yang berganti antar palet.
+     --chain di atas tetap untuk STATUS (st-violet, note-info): biru, bukan ungu. */
+  --primary:#2947C4; --primary-hi:#2140B0; --on-primary:#FFFFFF;
+  --accent:#2947C4; --accent-soft:#EEF1FC; --accent-line:#C9D3F5; --accent-ink:#2947C4;
+  --mark:#16181D; --mark-dot:#5BC37F;
+  /* huruf */
+  --sans:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Consolas,monospace;
+  /* tata letak */
+  --side:248px; --top:56px;
+}
+
+/* =========================== usulan palet =========================== */
+:root[data-palette="samudra"]{
+  --paper:#F6F8F7; --hover:#EEF3F2; --sunken:#F1F4F3;
+  --primary:#0E6B73; --primary-hi:#0A565D; --ring-c:rgba(14,107,115,.24);
+  --accent:#0E7C85; --accent-soft:#E5F2F2; --accent-line:#BCDCDD; --accent-ink:#0A5A61;
+  --mark:#0D4A50; --mark-dot:#7DD8CF;
+  --chain:#2459B3; --chain-hi:#1D4C9C; --chain-soft:#EDF3FC; --chain-line:#C7D8F2;
+}
+:root[data-palette="laut"]{
+  --paper:#F7F8FA; --hover:#F0F2F5; --sunken:#F2F4F7;
+  --primary:#1766C2; --primary-hi:#1256A8; --ring-c:rgba(23,102,194,.24);
+  --accent:#1766C2; --accent-soft:#EAF2FC; --accent-line:#C4D9F3; --accent-ink:#11549F;
+  --mark:#0F2F57; --mark-dot:#7FB6F5;
+  --chain:#1766C2; --chain-hi:#1256A8; --chain-soft:#EAF2FC; --chain-line:#C4D9F3;
+}
+:root[data-palette="emas"]{
+  --paper:#F9F8F5; --hover:#F2F1EC; --sunken:#F4F3EF;
+  --primary:#1A1C21; --primary-hi:#34373E; --ring-c:rgba(184,135,11,.32);
+  --accent:#B8870B; --accent-soft:#FAF3DE; --accent-line:#EAD9A4; --accent-ink:#725303;
+  --mark:#1A1C21; --mark-dot:#E8B923;
+  --chain:#2459B3; --chain-hi:#1D4C9C; --chain-soft:#EDF3FC; --chain-line:#C7D8F2;
+}
+:root[data-palette="terakota"]{
+  --paper:#FAF8F5; --hover:#F4F1EC; --sunken:#F5F2EE;
+  --primary:#B0442A; --primary-hi:#963822; --ring-c:rgba(176,68,42,.24);
+  --accent:#B0442A; --accent-soft:#FBEEE9; --accent-line:#EFCABE; --accent-ink:#8C3520;
+  --mark:#5A2415; --mark-dot:#F2A07F;
+  --chain:#2459B3; --chain-hi:#1D4C9C; --chain-soft:#EDF3FC; --chain-line:#C7D8F2;
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font:400 14px/1.55 var(--sans);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;font-feature-settings:'cv11','ss01'}
+h1,h2,h3,h4{margin:0;font-weight:600;letter-spacing:-.011em;color:var(--ink)}
+p{margin:0}
+a{color:inherit;text-decoration:none}
+button,input,textarea,select{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:0;padding:0}
+ol,ul{margin:0;padding:0;list-style:none}
+:focus-visible{outline:none;box-shadow:var(--ring);border-radius:var(--r-sm)}
+::selection{background:var(--accent-line);color:var(--ink)}
+.i{width:18px;height:18px;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.i-sm{width:15px;height:15px}
+.i-xs{width:13px;height:13px}
+.mono{font-family:var(--mono);font-feature-settings:normal;letter-spacing:-.015em}
+.num{font-variant-numeric:tabular-nums}
+.u{color:var(--faint);font-weight:400;margin-left:.28em}
+.muted{color:var(--muted)} .faint{color:var(--faint)}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.lnk{color:var(--accent-ink);font-weight:500}
+.lnk:hover{text-decoration:underline;text-underline-offset:2px}
+.show-sm{display:none}
+
+/* ============================ shell ============================ */
+.app{display:grid;grid-template-columns:var(--side) minmax(0,1fr);min-height:100vh}
+.side{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;background:var(--card);border-right:1px solid var(--line);padding:14px 12px;z-index:30}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px}
+.brand-mark{display:block;flex-shrink:0}
+.brand-name{font-weight:600;font-size:15px;letter-spacing:-.02em;line-height:1.2}
+.brand-sub{font-size:11.5px;color:var(--faint);line-height:1.3}
+.nav-group+.nav-group{margin-top:10px}
+.nav-label{font-size:11px;font-weight:500;color:var(--faint);text-transform:uppercase;letter-spacing:.07em;padding:10px 10px 6px}
+.nav-link{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:var(--r-sm);color:var(--muted);font-weight:500;font-size:13.5px;transition:background .12s,color .12s}
+.nav-link .i{color:var(--faint);transition:color .12s}
+.nav-link:hover{background:var(--hover);color:var(--ink)}
+.nav-link:hover .i{color:var(--muted)}
+.nav-link.on{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+.nav-link.on .i{color:var(--accent)}
+.nl-short{display:none}
+.side-foot{margin-top:auto;display:flex;flex-direction:column;gap:10px;padding-top:14px}
+.wmini{border-radius:var(--r);padding:12px;background:var(--sunken)}
+.wmini-top{display:flex;align-items:center;gap:10px}
+.wmini-prov{font-size:11.5px;color:var(--faint);line-height:1.3}
+.wmini-addr{font-size:12.5px;line-height:1.35}
+.wmini-bal{font-size:15px;font-weight:600;margin-top:10px;letter-spacing:-.01em}
+.wmini-bal small{font-size:12px;color:var(--muted);font-weight:500}
+.wmini p{font-size:12.5px;color:var(--muted);margin-bottom:10px}
+.side-meta{display:flex;flex-direction:column;gap:2px;padding:0 10px 2px;font-size:11.5px;color:var(--faint)}
+.side-meta a{display:inline-flex;align-items:center;gap:4px}
+.side-meta a:hover{color:var(--ink)}
+
+.main{min-width:0;display:flex;flex-direction:column}
+.top{position:sticky;top:0;z-index:20;height:var(--top);display:flex;align-items:center;gap:14px;padding:0 28px;background:rgba(248,248,246,.86);-webkit-backdrop-filter:saturate(180%) blur(10px);backdrop-filter:saturate(180%) blur(10px);border-bottom:1px solid var(--line)}
+.top-brand{display:none}
+.crumbs{display:flex;align-items:center;gap:6px;font-size:13.5px;color:var(--muted);min-width:0}
+.crumbs a:hover{color:var(--ink)}
+.crumbs .sep{color:var(--line-3)}
+.crumbs .cur{color:var(--ink);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top-r{margin-left:auto;display:flex;align-items:center;gap:8px}
+.net{display:inline-flex;align-items:center;gap:7px;height:30px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:var(--card);font-size:12.5px;font-weight:500;color:var(--ink-2)}
+.net-dot{width:7px;height:7px;border-radius:50%;background:#2E9E57;box-shadow:0 0 0 3px rgba(46,158,87,.15)}
+.net.bad{border-color:var(--warn-line);background:var(--warn-soft);color:var(--warn)}
+.net.bad .net-dot{background:var(--warn);box-shadow:0 0 0 3px rgba(138,106,5,.15)}
+.acct-wrap{position:relative}
+.acct{display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 8px 0 6px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--card);box-shadow:var(--sh-1);font-size:13px;transition:background .12s}
+.acct:hover{background:var(--hover)}
+.acct .i{color:var(--faint)}
+.av{display:inline-block;border-radius:50%;flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(22,24,29,.08)}
+.content{width:100%;max-width:1180px;margin:0 auto;padding:28px 28px 72px}
+
+/* ============================ tipografi halaman ============================ */
+.page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px 24px;margin-bottom:24px;flex-wrap:wrap}
+.page-head h1{font-size:26px;line-height:1.2;letter-spacing:-.028em}
+.page-sub{color:var(--muted);margin-top:6px;max-width:64ch}
+.eyebrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--faint);margin-bottom:6px}
+.eyebrow .dotsep{width:3px;height:3px;border-radius:50%;background:var(--line-3)}
+.sec-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:32px 0 14px}
+.sec-head h2{font-size:15px;letter-spacing:-.012em}
+.sec-head a{font-size:13px;color:var(--muted);display:inline-flex;align-items:center;gap:4px}
+.sec-head a:hover{color:var(--ink)}
+
+/* ============================ tombol ============================ */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:36px;padding:0 14px;border-radius:var(--r-sm);border:1px solid transparent;font-size:13.5px;font-weight:500;line-height:1;white-space:nowrap;user-select:none;transition:background .14s,border-color .14s,box-shadow .14s,color .14s}
+.btn .i{width:16px;height:16px}
+.btn-primary{background:var(--primary);color:var(--on-primary);box-shadow:0 1px 2px rgba(22,24,29,.22),inset 0 1px 0 rgba(255,255,255,.10)}
+.btn-primary:hover{background:var(--primary-hi)}
+.btn-secondary{background:var(--card);border-color:var(--line-2);color:var(--ink);box-shadow:var(--sh-1)}
+.btn-secondary:hover{background:var(--hover);border-color:var(--line-3)}
+.btn-ghost{color:var(--muted)}
+.btn-ghost:hover{background:var(--hover);color:var(--ink)}
+.btn-success{background:var(--verify);color:#fff;box-shadow:0 1px 2px rgba(27,107,54,.25)}
+.btn-success:hover{background:var(--verify-hi)}
+.btn-danger{background:var(--card);border-color:var(--danger-line);color:var(--danger);box-shadow:var(--sh-1)}
+.btn-danger:hover{background:var(--danger-soft);border-color:#E5AEB3}
+.btn-net{background:var(--warn-soft);border-color:var(--warn-line);color:var(--warn)}
+.btn-net:hover{background:#F8EFD0}
+.btn-sm{height:30px;padding:0 11px;font-size:12.5px;gap:6px}
+.btn-sm .i{width:14px;height:14px}
+.btn-lg{height:42px;padding:0 18px;font-size:14px}
+.btn-block{width:100%}
+.btn[disabled]{opacity:.5;cursor:not-allowed;box-shadow:none}
+.btn.busy{opacity:1;cursor:progress}
+.btn-primary.busy{opacity:.78}
+.btn-success.busy{background:#4D8B61}
+.btn-secondary.busy,.btn-danger.busy{background:var(--sunken);color:var(--muted);border-color:var(--line-2)}
+.icon-btn{width:34px;height:34px;display:inline-grid;place-items:center;border-radius:var(--r-sm);color:var(--muted);transition:background .12s,color .12s}
+.icon-btn:hover{background:var(--hover);color:var(--ink)}
+.copy{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:5px;color:var(--faint);vertical-align:middle}
+.copy:hover{background:var(--hover);color:var(--ink)}
+.copy .i{width:13px;height:13px}
+.spin{display:inline-block;width:14px;height:14px;border-radius:50%;border:1.75px solid currentColor;border-right-color:transparent;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ============================ badge & tag ============================ */
+.badge{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px 0 7px;border-radius:999px;border:1px solid;font-size:12px;font-weight:500;line-height:1;white-space:nowrap}
+.badge .i{width:12px;height:12px;stroke-width:2.4}
+.badge .spin{width:10px;height:10px;border-width:1.5px}
+.badge-lg{height:28px;padding:0 11px 0 9px;font-size:13px;gap:7px}
+.badge-lg .i{width:13px;height:13px}
+.st-mint{background:var(--verify-soft);color:var(--verify);border-color:var(--verify-line)}
+.st-violet{background:var(--chain-soft);color:var(--chain);border-color:var(--chain-line)}
+.st-amber{background:var(--signal-soft);color:var(--signal);border-color:var(--signal-line)}
+.st-warn{background:var(--warn-soft);color:var(--warn);border-color:var(--warn-line)}
+.st-rose{background:var(--danger-soft);color:var(--danger);border-color:var(--danger-line)}
+.st-neutral{background:var(--sunken);color:var(--muted);border-color:var(--line)}
+.tag{display:inline-flex;align-items:center;gap:5px;height:20px;padding:0 7px;border-radius:5px;background:var(--sunken);border:1px solid var(--line);font-size:11.5px;font-weight:500;color:var(--muted);white-space:nowrap}
+.tag-chain{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent-ink)}
+.tag-verify{background:var(--verify-soft);border-color:var(--verify-line);color:var(--verify)}
+
+/* ============================ kartu ============================ */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh-1)}
+.card-h{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:54px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.card-h h3{font-size:14px;letter-spacing:-.012em;display:flex;align-items:center;gap:8px}
+.card-h h3 .i{display:none}
+.card-h .meta{font-size:12.5px;color:var(--faint)}
+.card-b{padding:18px}
+.card-f{padding:12px 16px;border-top:1px solid var(--line);background:#FBFBFA;border-radius:0 0 var(--r) var(--r);font-size:12.5px;color:var(--muted);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.stack>*+*{margin-top:16px}
+
+/* ringkasan: saldo + statistik */
+.bal-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.bal{padding:18px 18px 16px;display:flex;flex-direction:column;min-height:148px}
+.bal-top{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.bal-l{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);font-weight:500}
+.bal-l .i{width:16px;height:16px;color:var(--faint)}
+.bal-addr{display:inline-flex;align-items:center;gap:2px;font-size:12px;color:var(--muted)}
+.bal-n{font-size:30px;font-weight:600;letter-spacing:-.03em;line-height:1.1;margin-top:18px}
+.bal-n small{font-size:14px;font-weight:500;color:var(--muted);letter-spacing:0;margin-left:4px}
+.bal-f{margin-top:auto;padding-top:12px;font-size:12.5px;color:var(--faint)}
+.bal.hero{background:linear-gradient(165deg,var(--accent-soft) 0%,var(--card) 58%);border-color:var(--accent-line)}
+.bal.hero .bal-l,.bal.hero .bal-l .i{color:var(--accent-ink)}
+.bal-empty{display:flex;flex-direction:column;align-items:flex-start;gap:12px;margin-top:14px}
+.bal-empty p{font-size:13.5px;color:var(--muted);max-width:36ch}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);margin-top:16px}
+.stat{padding:16px 18px}
+.stat+.stat{border-left:1px solid var(--line)}
+.stat-l{font-size:12.5px;color:var(--muted);font-weight:500}
+.stat-n{font-size:26px;font-weight:600;letter-spacing:-.03em;line-height:1.15;margin-top:6px}
+.stat-h{font-size:12px;color:var(--faint);margin-top:2px}
+
+/* kartu kontrak */
+.jobs{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px}
+.job{position:relative;display:flex;flex-direction:column;gap:14px;padding:18px;transition:border-color .15s,box-shadow .15s}
+.job:hover{border-color:var(--line-2);box-shadow:var(--sh-2)}
+.job-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.job-id{font-size:12px;color:var(--faint);line-height:1.3;font-variant-numeric:tabular-nums}
+.job-brand{font-size:15px;letter-spacing:-.015em;line-height:1.35}
+.job-brand a::after{content:'';position:absolute;inset:0;border-radius:var(--r)}
+.job-brand a:focus-visible{box-shadow:none}
+.job-brand a:focus-visible::after{box-shadow:var(--ring)}
+.job-brief{font-size:13px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:40px}
+.job-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-top:12px;border-top:1px solid var(--line);margin-top:auto}
+.job-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--faint)}
+.job-meta .amt{color:var(--ink);font-size:13.5px;font-weight:500}
+.job-actions{position:relative;z-index:1}
+.meter-bar{position:relative;height:6px;border-radius:999px;background:var(--sunken);box-shadow:inset 0 0 0 1px var(--line)}
+.meter-fill{position:absolute;left:0;top:0;bottom:0;border-radius:999px;background:#A3AAB3}
+.meter-fill.ok{background:var(--verify)}
+.meter-fill.lo{background:#C9585F}
+.meter-fill.mid{background:#C9A233}
+.meter-tgt{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;border-radius:1px;background:var(--ink)}
+.meter-l{display:flex;justify-content:space-between;gap:8px;margin-top:8px;font-size:12px;color:var(--muted)}
+.meter-l span:last-child{color:var(--faint)}
+
+/* segmented control */
+.seg-wrap{margin-bottom:20px;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.seg{display:inline-flex;gap:2px;padding:3px;border-radius:var(--r);background:var(--sunken);border:1px solid var(--line)}
+.seg button{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 12px;border-radius:5px;font-size:13px;font-weight:500;color:var(--muted);white-space:nowrap;transition:background .12s,color .12s}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(22,24,29,.08),0 0 0 1px var(--line)}
+.seg .cnt{font-size:11.5px;color:var(--faint)}
+.seg button.on .cnt{color:var(--muted)}
+
+/* ============================ form ============================ */
+.form{max-width:720px}
+.fsec{padding:22px 24px}
+.fsec+.fsec{border-top:1px solid var(--line)}
+.fsec-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.fsec-h h3{font-size:14px}
+.fsec-h p{font-size:13px;color:var(--muted);margin-top:2px}
+.field+.field{margin-top:18px}
+.label{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:7px;font-size:13px;font-weight:500}
+.label .opt{font-weight:400;font-size:12px;color:var(--faint)}
+.input,.textarea{width:100%;height:38px;padding:0 12px;border:1px solid var(--line-2);border-radius:var(--r-sm);background:var(--card);box-shadow:inset 0 1px 1px rgba(22,24,29,.03);transition:border-color .12s,box-shadow .12s}
+.textarea{height:auto;padding:10px 12px;line-height:1.6;resize:vertical;display:block}
+.input::placeholder,.textarea::placeholder{color:#A6ACB4}
+.input:hover,.textarea:hover{border-color:var(--line-3)}
+.input:focus,.textarea:focus{outline:none;border-color:var(--accent);box-shadow:var(--ring)}
+.input.err,.textarea.err{border-color:var(--danger)}
+.input.err:focus,.textarea.err:focus{box-shadow:0 0 0 3px rgba(165,38,47,.16)}
+.input[readonly],.textarea[readonly]{background:var(--sunken);color:var(--muted)}
+.hint{font-size:12.5px;color:var(--muted);margin-top:7px}
+.errm{font-size:12.5px;color:var(--danger);margin-top:7px;display:flex;align-items:flex-start;gap:6px}
+.errm:empty{display:none}
+.errm .i{width:14px;height:14px;margin-top:2px}
+.affix{position:relative}
+.affix .input{padding-right:58px}
+.affix span{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--faint);pointer-events:none}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.grid-2 .field+.field{margin-top:0}
+.check{display:flex;gap:12px;align-items:flex-start;padding:14px;border:1px solid var(--line);border-radius:var(--r-sm);cursor:pointer;transition:background .12s,border-color .12s}
+.check:hover{background:#FBFBFA;border-color:var(--line-2)}
+.check input{width:16px;height:16px;margin:2px 0 0;accent-color:var(--primary);flex-shrink:0}
+.check b{font-weight:500;display:block}
+.check span{font-size:12.5px;color:var(--muted)}
+.sum{border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.sum-row{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:11px 0;font-size:13.5px}
+.sum-row+.sum-row{border-top:1px solid var(--line)}
+.sum-row dt{color:var(--muted)}
+.sum-row dd{margin:0;font-weight:500;font-variant-numeric:tabular-nums;text-align:right}
+.sum-row.total{font-weight:600}
+.sum-row.total dt{color:var(--ink)}
+.sum-row.total dd{font-weight:600}
+.canon{margin-top:10px}
+.canon summary{cursor:pointer;font-size:12.5px;color:var(--muted);display:inline-flex;align-items:center;gap:6px;list-style:none}
+.canon summary::-webkit-details-marker{display:none}
+.canon summary:hover{color:var(--ink)}
+.canon pre,.pre{margin:10px 0 0;padding:12px 14px;border-radius:var(--r-sm);background:var(--ink);color:#D6DAE0;font:12px/1.65 var(--mono);white-space:pre-wrap;word-break:break-all;overflow:auto;max-height:240px}
+.pre .k{color:#8C939C}
+.ffoot{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:16px 24px;border-top:1px solid var(--line);background:#FBFBFA;border-radius:0 0 var(--r) var(--r)}
+.ffoot p{font-size:12.5px;color:var(--muted);max-width:44ch}
+
+/* ============================ status transaksi ============================ */
+.txw{display:inline-flex;flex-direction:column;align-items:flex-start;gap:8px;max-width:100%}
+.txw.block{display:flex;align-items:stretch}
+.txs{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--faint)}
+.txs li{display:inline-flex;align-items:center;gap:5px}
+.txs li::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--line-2)}
+.txs li.d{color:var(--verify)}
+.txs li.d::before{background:var(--verify)}
+.txs li.a{color:var(--accent-ink);font-weight:500}
+.txs li.a::before{background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.txs .mono{font-size:11.5px}
+.tx-msg{display:flex;align-items:flex-start;gap:6px;font-size:12.5px;color:var(--muted);max-width:52ch}
+.tx-msg .i{width:14px;height:14px;margin-top:2px;flex-shrink:0}
+.tx-msg.err{color:var(--danger)}
+
+/* ============================ callout ============================ */
+.note{display:flex;gap:10px;padding:12px 14px;border-radius:var(--r-sm);border:1px solid;font-size:13px;line-height:1.55;color:var(--ink-2)}
+.note>.i,.note>.spin{margin-top:2px;width:16px;height:16px}
+.note b{font-weight:600;color:var(--ink)}
+.note .mono{font-size:12px}
+.note-info{background:var(--chain-soft);border-color:var(--chain-line)} .note-info>.i,.note-info>.spin{color:var(--chain)}
+.note-warn{background:var(--warn-soft);border-color:var(--warn-line)} .note-warn>.i{color:var(--warn)}
+.note-err{background:var(--danger-soft);border-color:var(--danger-line)} .note-err>.i{color:var(--danger)}
+.note-ok{background:var(--verify-soft);border-color:var(--verify-line)} .note-ok>.i{color:var(--verify)}
+.note-plain{background:var(--sunken);border-color:var(--line)} .note-plain>.i{color:var(--faint)}
+.netbar{display:flex;align-items:center;justify-content:space-between;gap:12px 20px;flex-wrap:wrap;margin-bottom:22px}
+.netbar .note{flex:1;min-width:260px;border:0;padding:0;background:none}
+.netbar-w{padding:10px 10px 10px 14px;border:1px solid var(--warn-line);background:var(--warn-soft);border-radius:var(--r)}
+.tech{margin-top:8px}
+.tech summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:4px;font-size:12.5px;color:var(--muted)}
+.tech summary::-webkit-details-marker{display:none}
+.tech summary:hover{color:var(--ink)}
+.tech[open] summary .i{transform:rotate(90deg)}
+.err-line{margin-top:8px;padding:8px 10px;border-radius:5px;background:rgba(255,255,255,.7);border:1px solid var(--danger-line);font:12px/1.5 var(--mono);color:var(--danger);word-break:break-word}
+
+/* ============================ detail ============================ */
+.back{display:inline-flex;align-items:center;gap:4px;margin:-4px 0 14px -6px;height:28px;padding:0 8px 0 4px;border-radius:5px;font-size:13px;color:var(--muted)}
+.back:hover{background:var(--hover);color:var(--ink)}
+.dhead{display:flex;justify-content:space-between;align-items:flex-start;gap:16px 24px;flex-wrap:wrap;margin-bottom:20px}
+.dhead h1{font-size:28px;letter-spacing:-.03em;line-height:1.2}
+.dhead .page-sub{max-width:68ch}
+.dhead-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tabs{display:flex;gap:22px;border-bottom:1px solid var(--line);margin-bottom:20px;overflow-x:auto}
+.tabs button{display:inline-flex;align-items:center;gap:7px;padding:10px 0 11px;margin-bottom:-1px;border-bottom:2px solid transparent;font-size:13.5px;font-weight:500;color:var(--muted);white-space:nowrap}
+.tabs button:hover{color:var(--ink)}
+.tabs button.on{color:var(--ink);border-bottom-color:var(--accent)}
+.tabs .cnt{font-size:11.5px;color:var(--faint);background:var(--sunken);border:1px solid var(--line);border-radius:999px;padding:0 6px;line-height:17px}
+.detail{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:20px;align-items:start}
+
+.tl{padding:6px 16px 8px}
+.tl li{position:relative;display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:12px;padding:9px 0}
+.tl li:not(:last-child)::before{content:'';position:absolute;left:9.5px;top:31px;bottom:-9px;width:1px;background:var(--line-2)}
+.tl li.done:not(:last-child)::before{background:var(--verify-line)}
+.tl-dot{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;border:1.5px solid var(--line-2);background:var(--card);margin-top:1px}
+.tl-dot .i{width:11px;height:11px;stroke-width:3}
+.tl li.done .tl-dot{background:var(--verify);border-color:var(--verify);color:#fff}
+.tl li.active .tl-dot{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+.tl li.active .tl-dot::after{content:'';width:7px;height:7px;border-radius:50%;background:var(--accent)}
+.tl li.fail .tl-dot{background:var(--danger);border-color:var(--danger);color:#fff}
+.tl li.skip .tl-dot{border-style:dashed}
+.tl-t{font-size:13.5px;font-weight:500;color:var(--faint);line-height:1.4}
+.tl li.done .tl-t,.tl li.active .tl-t,.tl li.fail .tl-t{color:var(--ink)}
+.tl li.skip .tl-t{text-decoration:line-through;text-decoration-color:var(--line-3)}
+.tl-s{font-size:12.5px;color:var(--faint);margin-top:1px}
+.tl li.active .tl-s{color:var(--accent-ink)}
+.tl li.fail .tl-s{color:var(--danger)}
+.tl-m{font-size:12px;color:var(--faint);text-align:right;white-space:nowrap;line-height:1.5}
+.tl-m .mono{font-size:11.5px}
+.txl{color:var(--muted);font-family:var(--mono);font-size:11.5px;display:inline-flex;align-items:center;gap:3px}
+.txl:hover{color:var(--accent-ink)}
+.txl .i{width:11px;height:11px}
+
+.qp li{display:grid;grid-template-columns:30px minmax(0,1fr) auto;gap:12px;align-items:center;padding:11px 16px}
+.qp li+li{border-top:1px solid var(--line)}
+.qp-i{font-family:var(--mono);font-size:12px;color:var(--faint)}
+.qp-q{font-size:13.5px;line-height:1.45}
+.qp-f{display:flex;gap:6px}
+.hit{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 7px 0 6px;border-radius:999px;border:1px solid;font:600 11px/1 var(--mono);letter-spacing:0}
+.hit .i{width:11px;height:11px;stroke-width:2.8}
+.hit.y{background:var(--verify-soft);border-color:var(--verify-line);color:var(--verify)}
+.hit.n{background:var(--danger-soft);border-color:var(--danger-line);color:var(--danger)}
+.hit.p{background:var(--card);border-color:var(--line-2);border-style:dashed;color:var(--faint)}
+.hit.s{background:transparent;border-color:transparent;color:var(--line-3)}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--faint)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.lg{width:8px;height:8px;border-radius:50%;display:inline-block}
+.lg-y{background:var(--verify)} .lg-n{background:#C9585F} .lg-p{border:1.5px dashed var(--line-3)}
+
+.deliv{border-radius:var(--r-sm);background:var(--sunken);overflow:hidden}
+.deliv-h{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 12px;border-bottom:1px solid var(--line);font-size:12px;color:var(--faint)}
+.deliv-h b{font-weight:500;color:var(--muted)}
+.deliv-b{padding:12px;font-size:13.5px;line-height:1.65;white-space:pre-wrap;color:var(--ink-2);max-height:220px;overflow:auto}
+.checks{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.checks li{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--faint)}
+.checks li .i{width:14px;height:14px}
+.checks li.ok{color:var(--verify)}
+.counter{font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums}
+.steps2{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--faint);margin-bottom:14px;flex-wrap:wrap}
+.steps2 span{display:inline-flex;align-items:center;gap:6px}
+.steps2 b{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;border:1px solid var(--line-2);font:600 10.5px/1 var(--sans);color:var(--muted)}
+.steps2 .on{color:var(--ink);font-weight:500}
+.steps2 .on b{background:var(--ink);border-color:var(--ink);color:#fff}
+.steps2 .ok{color:var(--verify)}
+.steps2 .ok b{background:var(--verify);border-color:var(--verify);color:#fff}
+.who{display:flex;align-items:center;gap:10px;font-size:13.5px;color:var(--muted)}
+.prog{height:4px;border-radius:999px;background:var(--sunken);overflow:hidden;margin-top:10px}
+.prog span{display:block;height:100%;background:var(--accent);border-radius:999px;transition:width .4s}
+.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start}
+
+.kv{padding:4px 18px}
+.kv div{display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:10px 0;font-size:13.5px}
+.kv div+div{border-top:1px solid var(--line)}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;font-size:13.5px;font-weight:500;font-variant-numeric:tabular-nums;text-align:right;color:var(--ink)}
+.kv dd.sans{font-family:var(--sans);font-size:13px;font-weight:500}
+.kv dd.dim{color:var(--faint)}
+.fund{display:inline-flex;align-items:center;gap:7px}
+.fund i{width:7px;height:7px;border-radius:50%;background:var(--faint)}
+
+.radar-wrap{padding:8px 16px 16px;text-align:center}
+.radar{width:100%;max-width:252px;display:block;margin:0 auto}
+.rd-ring{fill:none;stroke:var(--line);stroke-width:1}
+.rd-ring-2{stroke-dasharray:2 4}
+.rd-sp{stroke-width:1.5;stroke-linecap:round}
+.rd-sp.rd-y{stroke:var(--verify)} .rd-sp.rd-n{stroke:var(--danger-line)} .rd-sp.rd-p{stroke:var(--line-2);stroke-dasharray:3 4}
+.rd-nd circle{stroke-width:1.5}
+.rd-nd.rd-y circle{fill:var(--verify-soft);stroke:var(--verify)}
+.rd-nd.rd-n circle{fill:var(--danger-soft);stroke:#D0767D}
+.rd-nd.rd-p circle{fill:var(--card);stroke:var(--line-3);stroke-dasharray:3 3}
+.rd-nd text{font:600 10px var(--mono)}
+.rd-nd.rd-y text{fill:var(--verify)} .rd-nd.rd-n text{fill:var(--danger)} .rd-nd.rd-p text{fill:var(--faint)}
+.rd-core{fill:var(--mark)}
+.rd-core-t{fill:#fff;font:600 7.5px var(--sans);letter-spacing:.12em}
+.score{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line)}
+.score div{padding:12px 10px;text-align:center}
+.score div+div{border-left:1px solid var(--line)}
+.score b{display:block;font-size:17px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.score span{font-size:11.5px;color:var(--faint)}
+.score .up{color:var(--verify)} .score .dn{color:var(--danger)}
+
+.audit li{display:flex;align-items:flex-start;gap:10px;padding:9px 16px;font-size:13px}
+.audit li+li{border-top:1px solid var(--line)}
+.audit .ck{display:grid;place-items:center;width:18px;height:18px;border-radius:50%;flex-shrink:0;margin-top:1px}
+.audit .ck .i{width:11px;height:11px;stroke-width:3}
+.audit .ck.y{background:var(--verify-soft);color:var(--verify);box-shadow:inset 0 0 0 1px var(--verify-line)}
+.audit .ck.n{background:var(--danger-soft);color:var(--danger)}
+.audit .ck.s{background:var(--sunken);color:var(--faint);box-shadow:inset 0 0 0 1px var(--line)}
+.audit small{display:block;font-size:12px;color:var(--faint)}
+.formula{font:12px/1.6 var(--mono);color:var(--ink-2);background:var(--sunken);border:1px solid var(--line);border-radius:5px;padding:8px 10px}
+
+.zone{position:relative;display:flex;height:30px;border-radius:var(--r-sm);overflow:visible;margin-top:26px}
+.zone span{height:100%}
+.zone span:first-child{border-radius:var(--r-sm) 0 0 var(--r-sm)}
+.zone span:last-child{border-radius:0 var(--r-sm) var(--r-sm) 0}
+.z-ref{background:var(--danger-soft);box-shadow:inset 0 0 0 1px var(--danger-line)}
+.z-grey{background:var(--warn-soft);box-shadow:inset 0 0 0 1px var(--warn-line)}
+.z-rel{background:var(--verify-soft);box-shadow:inset 0 0 0 1px var(--verify-line)}
+.zone-mk{position:absolute;top:-6px;bottom:-6px;width:2px;margin-left:-1px;background:var(--ink);border-radius:1px}
+.zone-mk b{position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);font:600 11.5px/1 var(--sans);background:var(--ink);color:#fff;padding:4px 7px;border-radius:5px;white-space:nowrap}
+.zone-l{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)}
+.zone-l span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.frm{width:100%;border-collapse:collapse;font-size:12.5px}
+.frm td{padding:5px 0;white-space:nowrap;border:0}
+.frm td:first-child{color:var(--muted);white-space:normal}
+.frm td:last-child{text-align:right;font-family:var(--mono);font-size:12px}
+.frm tr.res td{padding-top:9px;border-top:1px solid var(--line);color:var(--ink);font-weight:600}
+.frm tr.res td:last-child{font-family:var(--sans);font-size:12.5px}
+
+/* ============================ log oracle ============================ */
+.log{overflow:hidden}
+.log details+details{border-top:1px solid var(--line)}
+.log summary{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:14px;align-items:center;padding:12px 16px;cursor:pointer;list-style:none;transition:background .12s}
+.log summary::-webkit-details-marker{display:none}
+.log summary:hover{background:#FBFBFA}
+.log details[open] summary{background:#FBFBFA}
+.log-m{min-width:0}
+.log-q{font-size:13.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log-s{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--faint);margin-top:2px}
+.log-s a{color:var(--muted);font-weight:500}
+.log-s a:hover{color:var(--accent-ink)}
+.log-t{font-size:12px;color:var(--faint);white-space:nowrap;display:flex;align-items:center;gap:8px}
+.log-t .i{width:14px;height:14px;transition:transform .15s}
+.log details[open] .log-t .i{transform:rotate(180deg)}
+.log-b{padding:4px 16px 16px;display:grid;gap:12px;background:#FBFBFA}
+.qa{display:grid;grid-template-columns:84px minmax(0,1fr);gap:4px 14px;font-size:13.5px}
+.qa dt{font-size:12px;color:var(--faint);padding-top:2px}
+.qa dd{margin:0}
+.answer{background:var(--card);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px;line-height:1.6;color:var(--ink-2)}
+mark{background:var(--verify-soft);color:var(--verify);font-weight:600;padding:0 3px;border-radius:3px;box-shadow:inset 0 0 0 1px var(--verify-line)}
+.meta-row{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--faint)}
+
+/* ============================ tabel aktivitas ============================ */
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-weight:500;font-size:12px;color:var(--faint);padding:10px 16px;border-bottom:1px solid var(--line);background:#FBFBFA;white-space:nowrap}
+th:first-child{border-radius:var(--r) 0 0 0} th:last-child{border-radius:0 var(--r) 0 0}
+.table-wrap td{padding:12px 16px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap}
+.table-wrap tbody tr:last-child td{border-bottom:0}
+.table-wrap tbody tr{transition:background .12s}
+.table-wrap tbody tr:hover{background:#FBFBFA}
+.t-r{text-align:right}
+.ty{display:inline-flex;align-items:center;gap:8px;font-weight:500}
+.ty-ic{display:grid;place-items:center;width:24px;height:24px;border-radius:6px;background:var(--sunken);color:var(--muted);box-shadow:inset 0 0 0 1px var(--line)}
+.ty-ic .i{width:13px;height:13px}
+.ty-in .ty-ic{background:var(--chain-soft);color:var(--chain);box-shadow:inset 0 0 0 1px var(--chain-line)}
+.ty-out .ty-ic{background:var(--verify-soft);color:var(--verify);box-shadow:inset 0 0 0 1px var(--verify-line)}
+.ty-back .ty-ic{background:var(--warn-soft);color:var(--warn);box-shadow:inset 0 0 0 1px var(--warn-line)}
+.ty-x .ty-ic{background:var(--danger-soft);color:var(--danger);box-shadow:inset 0 0 0 1px var(--danger-line)}
+.flow{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12px;color:var(--muted)}
+.flow .i{width:12px;height:12px;color:var(--line-3)}
+.flow .k{font-family:var(--sans);font-size:12px;font-weight:500;color:var(--ink-2)}
+td .amt{font-size:13.5px;font-weight:500;color:var(--ink)}
+td .job-l{color:var(--ink-2);font-weight:500}
+td .job-l:hover{color:var(--accent-ink)}
+
+/* ============================ keadaan ============================ */
+.empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:52px 24px;border:1px dashed var(--line-2);border-radius:var(--r);background:var(--card)}
+.empty-ic{display:grid;place-items:center;width:42px;height:42px;border-radius:10px;background:var(--sunken);color:var(--muted);box-shadow:inset 0 0 0 1px var(--line);margin-bottom:14px}
+.empty h3{font-size:15px}
+.empty p{font-size:13.5px;color:var(--muted);margin-top:4px;max-width:46ch}
+.empty .btn{margin-top:18px}
+.empty.is-err{border-style:solid;border-color:var(--danger-line)}
+.empty.is-err .empty-ic{background:var(--danger-soft);color:var(--danger);box-shadow:inset 0 0 0 1px var(--danger-line)}
+.sk{display:block;border-radius:6px;background:linear-gradient(90deg,#EEF0EE 25%,#F6F7F5 40%,#EEF0EE 60%);background-size:300% 100%;animation:sk 1.3s ease-in-out infinite}
+@keyframes sk{0%{background-position:100% 0}100%{background-position:0 0}}
+
+/* ============================ overlay ============================ */
+.overlay{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:16px;background:rgba(22,24,29,.36);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);animation:fade .15s ease-out}
+.modal{width:100%;max-width:420px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-pop);overflow:hidden;animation:pop .18s cubic-bezier(.2,.9,.3,1.2)}
+.modal-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:20px 20px 6px}
+.modal-h h3{font-size:16px;letter-spacing:-.015em}
+.modal-h p{font-size:13px;color:var(--muted);margin-top:4px}
+.modal-b{padding:14px 20px 20px}
+.modal-f{padding:13px 20px;border-top:1px solid var(--line);background:#FBFBFA;font-size:12.5px;color:var(--muted);display:flex;gap:8px;align-items:flex-start}
+.modal-f .i{width:15px;height:15px;color:var(--faint);margin-top:1px}
+.wopt{display:flex;align-items:center;gap:12px;width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--card);text-align:left;transition:background .12s,border-color .12s,box-shadow .12s}
+.wopt+.wopt{margin-top:8px}
+.wopt:hover{border-color:var(--line-2);background:#FBFBFA;box-shadow:var(--sh-1)}
+.wopt[disabled]{cursor:progress}
+.wlogo{display:grid;place-items:center;width:36px;height:36px;border-radius:9px;color:#fff;font:700 15px/1 var(--sans);flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}
+.wname{font-weight:500;font-size:14px;display:block}
+.wsub{font-size:12.5px;color:var(--faint);display:block}
+.wopt .end{margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--faint)}
+.wopt .end .tag-verify{height:20px}
+.wopt.dim{opacity:.62}
+.connecting{display:flex;flex-direction:column;align-items:center;text-align:center;padding:16px 8px 8px}
+.connecting .wlogo{width:56px;height:56px;border-radius:14px;font-size:22px;position:relative}
+.connecting .ring{position:absolute;inset:-6px;border-radius:18px;border:2px solid var(--accent-line);border-top-color:var(--accent);animation:spin 1s linear infinite}
+.connecting h4{font-size:15px;margin-top:18px}
+.connecting p{font-size:13px;color:var(--muted);margin-top:4px;max-width:30ch}
+
+.menu{position:absolute;right:0;top:calc(100% + 8px);width:300px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-pop);z-index:45;animation:pop .14s ease-out;overflow:hidden}
+.menu-h{padding:16px;border-bottom:1px solid var(--line)}
+.menu-h .row{display:flex;align-items:center;gap:10px}
+.menu-h .bal{font-size:22px;font-weight:600;letter-spacing:-.025em;margin-top:14px;padding:0;min-height:0;display:block}
+.menu-h .bal small{font-size:13px;font-weight:500;color:var(--muted)}
+.menu-list{padding:6px}
+.menu-list button,.menu-list a{display:flex;align-items:center;gap:10px;width:100%;height:36px;padding:0 10px;border-radius:var(--r-sm);font-size:13.5px;color:var(--ink-2);text-align:left}
+.menu-list button:hover,.menu-list a:hover{background:var(--hover)}
+.menu-list .i{width:16px;height:16px;color:var(--faint)}
+.menu-list .danger{color:var(--danger)}
+.menu-list .danger .i{color:var(--danger)}
+
+.drawer-bg{position:fixed;inset:0;z-index:60;background:rgba(22,24,29,.3);animation:fade .15s}
+.drawer{position:fixed;top:0;right:0;bottom:0;z-index:61;width:min(440px,100vw);display:flex;flex-direction:column;background:var(--card);border-left:1px solid var(--line);box-shadow:var(--sh-pop);animation:slide .22s cubic-bezier(.2,.8,.2,1)}
+.drawer-h{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--line)}
+.drawer-h h3{font-size:15px}
+.drawer-b{padding:20px;overflow:auto}
+.hsteps{counter-reset:s}
+.hsteps li{position:relative;padding:0 0 18px 38px;font-size:13.5px;color:var(--muted)}
+.hsteps li::before{counter-increment:s;content:counter(s);position:absolute;left:0;top:0;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--sunken);box-shadow:inset 0 0 0 1px var(--line);font-size:12px;font-weight:600;color:var(--ink)}
+.hsteps li:not(:last-child)::after{content:'';position:absolute;left:11.5px;top:28px;bottom:4px;width:1px;background:var(--line)}
+.hsteps b{display:block;color:var(--ink);font-weight:600;margin-bottom:2px}
+.quote{margin-top:6px;padding:16px;border-radius:var(--r);background:var(--mark);color:#fff;font-size:15px;font-weight:500;letter-spacing:-.01em;line-height:1.45}
+
+.toast{position:fixed;top:68px;right:20px;z-index:70;display:flex;gap:10px;align-items:flex-start;max-width:380px;padding:12px 12px 12px 14px;border-radius:var(--r);background:var(--ink);color:#F3F4F6;box-shadow:var(--sh-pop);font-size:13px;line-height:1.5;animation:pop .18s ease-out}
+.toast>.i{width:16px;height:16px;margin-top:1px}
+.toast.ok>.i{color:#6FCF8E} .toast.err>.i{color:#F08A90} .toast.info>.i{color:#9DB0F2}
+.toast button{color:#8C939C;margin-left:4px}
+.toast button:hover{color:#fff}
+.toast button .i{width:14px;height:14px}
+
+@keyframes fade{from{opacity:0}}
+@keyframes pop{from{opacity:0;transform:translateY(4px) scale(.985)}}
+@keyframes slide{from{transform:translateX(24px);opacity:0}}
+
+/* ============================ panel tinjau (hanya mockup) ============================ */
+.rv-btn{position:fixed;right:20px;bottom:20px;z-index:55;display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 14px 0 12px;border-radius:999px;background:var(--ink);color:#fff;font-size:12.5px;font-weight:500;box-shadow:var(--sh-pop)}
+.rv-btn .i{width:15px;height:15px}
+.rv-btn .pip{width:6px;height:6px;border-radius:50%;background:#F5B544}
+.rv{position:fixed;right:20px;bottom:66px;z-index:55;width:336px;max-height:calc(100vh - 96px);overflow:auto;padding:14px;border-radius:var(--r-lg);background:#1B1E24;color:#D9DCE1;box-shadow:var(--sh-pop);font-size:12.5px;animation:pop .16s ease-out}
+.rv h4{color:#fff;font-size:13px;display:flex;align-items:center;justify-content:space-between}
+.rv>p{color:#8E949D;font-size:12px;margin-top:3px}
+.rv-d{color:#AEB4BC;font-size:12px;line-height:1.5;margin-top:8px}
+.rv-l{color:#8E949D;font-size:11px;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 6px}
+.rv .seg{background:#262A31;border-color:#30353D;flex-wrap:wrap}
+.rv .seg button{color:#A9AFB8;height:26px;padding:0 9px;font-size:12px}
+.rv .seg button:hover{color:#fff}
+.rv .seg button.on{background:#3A404A;color:#fff;box-shadow:none}
+.rv-links{display:flex;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid #2C3037}
+.rv-links button{flex:1;height:30px;border-radius:6px;background:#262A31;color:#D9DCE1;font-size:12px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.rv-links button:hover{background:#30353D;color:#fff}
+.rv-links .i{width:14px;height:14px}
+
+/* ============================ sistem desain ============================ */
+.sw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.sw{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--card)}
+.sw i{display:block;height:56px;border-bottom:1px solid var(--line)}
+.sw div{padding:9px 11px}
+.sw b{display:block;font-size:12.5px;font-weight:600}
+.sw span{display:block;font-size:11.5px;color:var(--faint)}
+.sw .mono{font-size:11.5px;color:var(--muted)}
+.row-wrap{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.st-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px 16px}
+.st-list div{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.st-list code{font:11.5px var(--mono);color:var(--faint)}
+.type-row{display:grid;grid-template-columns:140px 1fr;gap:16px;align-items:baseline;padding:10px 0;border-bottom:1px solid var(--line)}
+.type-row code{font:11.5px var(--mono);color:var(--faint)}
+
+
+.mono-tile{display:inline-grid;place-items:center;flex-shrink:0;border-radius:28%;font-weight:700;letter-spacing:-.02em;line-height:1;
+  color:hsl(var(--h) 48% 26%);background:linear-gradient(150deg,hsl(var(--h) 62% 95%),hsl(var(--h) 52% 85%));box-shadow:inset 0 0 0 1px hsl(var(--h) 38% 79%)}
+.job-who{display:flex;align-items:center;gap:12px;min-width:0}
+.dhead-l{display:flex;align-items:flex-start;gap:16px;min-width:0}
+.dhead-l .mono-tile{margin-top:4px}
+.bal-split{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+.bal-split>div>span{display:block;font-size:12.5px;color:var(--muted)}
+.bal-split b{display:block;font-size:16px;font-weight:600;margin-top:3px;letter-spacing:-.01em}
+.spark{display:block;width:100%;height:46px;margin-top:14px;color:var(--accent)}
+.trend{font-size:12.5px;color:var(--muted);margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.trend-v{font-weight:600;font-variant-numeric:tabular-nums}
+.trend-v.up{color:var(--verify)} .trend-v.dn{color:var(--danger)}
+.stat-l{display:flex;align-items:center;gap:8px}
+.stat-ic{display:none;place-items:center;width:26px;height:26px;border-radius:8px;background:var(--accent-soft);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent-line)}
+.stat-ic .i{width:14px;height:14px}
+@media (max-width:767px){ .dhead-l{flex-direction:column;gap:12px} .dhead-l .mono-tile{width:44px!important;height:44px!important;font-size:17px!important;margin-top:0} }
+
+/* =====================================================================
+   GAYA PREMIUM — lapisan di atas gaya minimal. Tata letak TIDAK berubah;
+   yang berubah: kedalaman latar, sidebar gelap, kartu hero, bayangan
+   berlapis, huruf. Matikan dengan data-style="minimal".
+   ===================================================================== */
+:root[data-style="premium"]{
+  --sans:'Plus Jakarta Sans','Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
+  --r:14px; --r-sm:9px; --r-lg:18px;
+  --line:#E7EAED;
+  --sh-1:0 1px 2px rgba(16,24,40,.04),0 3px 10px -3px rgba(16,24,40,.07);
+  --sh-2:0 2px 4px rgba(16,24,40,.04),0 18px 36px -14px rgba(16,24,40,.20);
+}
+[data-style="premium"] body{letter-spacing:0;word-spacing:.06em;font-feature-settings:normal}
+[data-style="premium"] .mono{word-spacing:0}
+/* latar: cahaya merek + grid titik yang memudar */
+[data-style="premium"] .main{position:relative;isolation:isolate}
+[data-style="premium"] .main::before{content:'';position:absolute;inset:0 0 auto 0;height:620px;z-index:-1;pointer-events:none;
+  background:radial-gradient(900px 440px at 82% -160px,color-mix(in srgb,var(--accent) 17%,transparent),transparent 70%),
+             radial-gradient(760px 380px at 4% -180px,color-mix(in srgb,var(--chain) 9%,transparent),transparent 70%)}
+[data-style="premium"] .main::after{content:'';position:absolute;inset:0 0 auto 0;height:560px;z-index:-1;pointer-events:none;
+  background-image:radial-gradient(rgba(16,24,40,.075) 1px,transparent 1.3px);background-size:22px 22px;
+  -webkit-mask-image:linear-gradient(to bottom,#000 0%,transparent 100%);mask-image:linear-gradient(to bottom,#000 0%,transparent 100%)}
+[data-style="premium"] .top{background:color-mix(in srgb,var(--paper) 72%,transparent);border-bottom-color:rgba(16,24,40,.06)}
+/* judul */
+[data-style="premium"] .page-head h1{font-size:30px;font-weight:700;letter-spacing:-.032em}
+[data-style="premium"] .dhead h1{font-size:30px;font-weight:700;letter-spacing:-.032em}
+[data-style="premium"] .sec-head h2{font-size:16px;font-weight:700}
+[data-style="premium"] .card-h h3{font-weight:700}
+[data-style="premium"] .job-brand{font-size:15.5px;font-weight:700}
+/* kartu berlapis */
+[data-style="premium"] .card{border-color:rgba(16,24,40,.07);box-shadow:var(--sh-1)}
+[data-style="premium"] .card-h{border-bottom-color:rgba(16,24,40,.06)}
+[data-style="premium"] .card-f{background:transparent;border-top-color:rgba(16,24,40,.06)}
+[data-style="premium"] .job{transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s,border-color .2s}
+[data-style="premium"] .job:hover{transform:translateY(-3px);box-shadow:var(--sh-2);border-color:rgba(16,24,40,.09)}
+[data-style="premium"] .meter-fill{background:linear-gradient(90deg,#CBD0D6,#9CA3AC)}
+[data-style="premium"] .meter-fill.ok{background:linear-gradient(90deg,#5FB47F,var(--verify))}
+[data-style="premium"] .meter-fill.lo{background:linear-gradient(90deg,#E39AA0,#C24C55)}
+[data-style="premium"] .meter-fill.mid{background:linear-gradient(90deg,#E8CE7A,#C9A233)}
+/* tombol */
+[data-style="premium"] .btn{border-radius:10px;font-weight:600}
+[data-style="premium"] .btn-sm{border-radius:8px}
+[data-style="premium"] .btn-primary{background:linear-gradient(180deg,color-mix(in srgb,var(--primary) 84%,#fff),var(--primary));box-shadow:0 1px 2px rgba(16,24,40,.22),0 8px 18px -8px color-mix(in srgb,var(--primary) 70%,transparent),inset 0 1px 0 rgba(255,255,255,.2)}
+[data-style="premium"] .btn-primary:hover{background:linear-gradient(180deg,var(--primary),var(--primary-hi))}
+[data-style="premium"] .seg{border-radius:11px}
+[data-style="premium"] .seg button{border-radius:8px}
+/* kartu hero: saldo kontrak */
+[data-style="premium"] .bal.hero{position:relative;overflow:hidden;border:0;color:#fff;
+  background:radial-gradient(420px 240px at 100% 0%,color-mix(in srgb,var(--mark-dot) 34%,transparent),transparent 70%),
+             linear-gradient(150deg,var(--mark) 0%,color-mix(in srgb,var(--primary) 72%,var(--mark)) 100%);
+  box-shadow:0 18px 40px -18px color-mix(in srgb,var(--mark) 80%,transparent),inset 0 1px 0 rgba(255,255,255,.12)}
+[data-style="premium"] .bal.hero::after{content:'';position:absolute;right:-70px;top:-70px;width:240px;height:240px;border-radius:50%;
+  box-shadow:0 0 0 1px rgba(255,255,255,.08),0 0 0 36px rgba(255,255,255,.025),0 0 0 37px rgba(255,255,255,.07),0 0 0 76px rgba(255,255,255,.02),0 0 0 77px rgba(255,255,255,.05);pointer-events:none}
+[data-style="premium"] .bal.hero .bal-l,[data-style="premium"] .bal.hero .bal-l .i{color:rgba(255,255,255,.82)}
+[data-style="premium"] .bal.hero .bal-n{color:#fff}
+[data-style="premium"] .bal.hero .bal-n small{color:rgba(255,255,255,.62)}
+[data-style="premium"] .bal.hero .bal-addr{color:rgba(255,255,255,.72)}
+[data-style="premium"] .bal.hero .bal-addr:hover{color:#fff}
+[data-style="premium"] .bal.hero .bal-f{color:rgba(255,255,255,.66)}
+[data-style="premium"] .bal.hero .spark{color:#fff}
+[data-style="premium"] .bal.hero .trend{color:rgba(255,255,255,.7)}
+[data-style="premium"] .bal.hero .trend-v{color:#fff;background:rgba(255,255,255,.14);padding:2px 8px;border-radius:999px}
+/* statistik dengan ikon */
+[data-style="premium"] .stat-ic{display:inline-grid}
+[data-style="premium"] .stat-n{font-size:28px;font-weight:700}
+/* radar */
+[data-style="premium"] .radar-wrap{background:radial-gradient(circle at 50% 44%,color-mix(in srgb,var(--accent) 9%,transparent),transparent 62%)}
+/* sidebar gelap — desktop & tablet saja; tab bar ponsel tetap terang */
+@media (min-width:768px){
+  [data-style="premium"] .side{background:linear-gradient(180deg,var(--mark) 0%,color-mix(in srgb,var(--mark) 78%,#05080a) 100%);border-right:0;color:#fff}
+  [data-style="premium"] .side .brand-mark rect{fill:rgba(255,255,255,.12)!important}
+  [data-style="premium"] .brand-name{color:#fff}
+  [data-style="premium"] .brand-sub{color:rgba(255,255,255,.6)}
+  [data-style="premium"] .nav-label{color:rgba(255,255,255,.6)}
+  [data-style="premium"] .nav-link{color:rgba(255,255,255,.78)}
+  [data-style="premium"] .nav-link .i{color:rgba(255,255,255,.55)}
+  [data-style="premium"] .nav-link:hover{background:rgba(255,255,255,.07);color:#fff}
+  [data-style="premium"] .nav-link:hover .i{color:rgba(255,255,255,.8)}
+  [data-style="premium"] .nav-link.on{background:rgba(255,255,255,.12);color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+  [data-style="premium"] .nav-link.on .i{color:var(--mark-dot)}
+  [data-style="premium"] .wmini{background:rgba(255,255,255,.07);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+  [data-style="premium"] .wmini p,[data-style="premium"] .wmini-prov{color:rgba(255,255,255,.62)}
+  [data-style="premium"] .wmini-addr,[data-style="premium"] .wmini-bal{color:#fff}
+  [data-style="premium"] .wmini-bal small{color:rgba(255,255,255,.62)}
+  [data-style="premium"] .side-meta{color:rgba(255,255,255,.6)}
+  [data-style="premium"] .side-meta a:hover{color:#fff}
+}
+@media (min-width:768px) and (max-width:1023px){
+  [data-style="premium"] .nav-label{background:rgba(255,255,255,.14)}
+}
+
+/* =====================================================================
+   RESPONSIF — desktop ≥1024 · tablet 768–1023 (rail ikon) · ponsel ≤767 (tab bar)
+   ===================================================================== */
+@media (max-width:1180px){
+  .detail{grid-template-columns:1fr}
+  .detail-r{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+  .detail-r.stack>*+*{margin-top:0}
+}
+@media (max-width:1023px){
+  :root{--side:72px}
+  .side{padding:14px 10px}
+  .brand{justify-content:center;padding:4px 0 14px}
+  .brand-txt,.nl-full,.nl-short,.side-foot{display:none}
+  .nav-label{height:1px;padding:0;margin:10px 8px;background:var(--line);font-size:0}
+  .nav-group:first-child .nav-label{display:none}
+  .nav-link{justify-content:center;padding:0;height:40px}
+  .nav-link .i{width:20px;height:20px}
+  .content{padding:24px 24px 72px}
+  .top{padding:0 24px}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .stat:nth-child(3){border-left:0}
+  .stat:nth-child(n+3){border-top:1px solid var(--line)}
+}
+@media (max-width:767px){
+  .app{grid-template-columns:1fr}
+  .side{position:fixed;inset:auto 0 0 0;height:auto;flex-direction:row;padding:4px 4px calc(4px + env(safe-area-inset-bottom));border-right:0;border-top:1px solid var(--line);background:rgba(255,255,255,.94);-webkit-backdrop-filter:saturate(180%) blur(12px);backdrop-filter:saturate(180%) blur(12px);z-index:50}
+  .brand,.nav-label{display:none!important}
+  .nav{display:flex;width:100%}
+  .nav-group{display:contents}
+  .nav-group+.nav-group{margin:0}
+  .nav-link{flex:1;flex-direction:column;justify-content:center;gap:3px;height:54px;padding:0 2px;font-size:10.5px;font-weight:500;border-radius:8px}
+  .nav-link .i{width:20px;height:20px}
+  .nav-link .nl-short{display:block}
+  .nav-link.on{background:transparent;color:var(--accent-ink)}
+  .nav-link.on .i{color:var(--accent)}
+  .nav-link:hover{background:transparent}
+  .top{padding:0 16px;gap:10px}
+  .top-brand{display:block}
+  .crumbs .hide-sm-c{display:none}
+  .hide-sm{display:none}
+  .show-sm{display:inline}
+  .acct .mono,.acct .i{display:none}
+  .acct{padding:0 6px}
+  .content{padding:20px 16px 104px}
+  .page-head{margin-bottom:20px}
+  .page-head h1{font-size:21px}
+  .dhead h1{font-size:22px}
+  .bal-grid,.grid-2{grid-template-columns:1fr}
+  .bal{min-height:0}
+  .bal-n{font-size:26px;margin-top:14px}
+  .jobs{grid-template-columns:1fr}
+  .fsec{padding:18px 16px}
+  .ffoot{padding:14px 16px}
+  .ffoot .txw,.ffoot .btn{width:100%}
+  .detail-r{grid-template-columns:1fr}
+  .tl li{grid-template-columns:20px minmax(0,1fr)}
+  .tl-m{grid-column:2;text-align:left;margin-top:-4px}
+  .qp li{grid-template-columns:24px minmax(0,1fr);row-gap:8px}
+  .qp-f{grid-column:2}
+  .log summary{grid-template-columns:auto minmax(0,1fr)}
+  .log-t{grid-column:2}
+  .qa{grid-template-columns:1fr}
+  .qa dt{padding-top:0}
+  .table-wrap table,.table-wrap thead,.table-wrap tbody,.table-wrap tr,.table-wrap td{display:block}
+  .table-wrap thead{display:none}
+  .table-wrap tbody tr{padding:12px 14px;border-bottom:1px solid var(--line);display:grid;grid-template-columns:1fr auto;gap:6px 12px}
+  .table-wrap tbody tr:last-child{border-bottom:0}
+  .table-wrap td{padding:0;border:0;white-space:normal}
+  .table-wrap td.c-flow,.table-wrap td.c-note{grid-column:1/-1}
+  .table-wrap td.c-time{text-align:right}
+  .toast{left:16px;right:16px;top:64px;max-width:none}
+  .rv-btn{right:16px;bottom:78px}
+  .rv{right:16px;left:16px;width:auto;bottom:124px;max-height:calc(100vh - 150px)}
+  .modal{max-width:none}
+  .menu{position:fixed;left:12px;right:12px;top:62px;width:auto}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<noscript><p style="padding:40px;font-family:system-ui">Mockup ini butuh JavaScript.</p></noscript>
+
+<script>
+'use strict';
+/* =====================================================================
+   GEO Escrow — mockup redesign Fase 1
+   ---------------------------------------------------------------------
+   Semua data di bawah adalah CONTOH. Yang disimulasikan: wallet, waktu,
+   dan jawaban AI. Yang dicerminkan PERSIS dari backend:
+     - deriveUiStatus + label/cls 13 status  -> lib/status.ts
+     - aturan keputusan (aritmetika integer) -> lib/scoring.ts decide()
+     - ukuran subset VRF                     -> lib/vrf.ts subsetSize()
+     - gabung multi-engine = every()         -> lib/oracle/runner.ts:170-184
+     - string kanonik query pool & verdict   -> lib/hash.ts, lib/verdict.ts
+     - batas panjang field                   -> lib/validate-input.ts LIMITS
+     - nama tipe aktivitas                   -> lib/indexer.ts
+   Di FE sungguhan, yang ada di lib/ DIIMPOR, bukan disalin seperti ini.
+   ===================================================================== */
+
+const NOW = Date.now();
+const MIN = 60e3, H = 60 * MIN, D = 24 * H;
+
+/* ---------------- alamat ---------------- */
+const CONTRACT = '0x41462F3092Ca66b7B3d9c8b20337793e2756cC46';   // nyata
+const ARBITER  = '0xd1ff61def4D7c6dB938A4501f460b5176fcbCd78';   // nyata
+const ORACLE   = '0xA87D9c3304B13a0325Ae91A05d2322f4C8f3a139';   // nyata
+const CLIENT   = '0x71C7656EC7ab88b098defB751B7401B5f6d8976F';
+const CLIENT_B = '0x2B8e4F1a9C3d5E7f0A2b4C6d8E0f1A3b5C7d9E1f';
+const FREEL    = '0xF77e3c9A1b2D4e5F60718293a4B5c6D7e8F90a04';
+const FREEL_B  = '0x9Ac1D3e5F7a9B1c3D5e7F9a1B3c5D7e9F1a3B5c7';
+const OBSERVER = '0x5A2b9C3d4E5f6071829304a5B6c7D8e9F0a1B2c3';
+const SCAN = 'https://testnet.bscscan.com';
+
+const ROLES = {
+  client:     { addr: CLIENT,   label: 'Client',     bal: '0.0142' },
+  freelancer: { addr: FREEL,    label: 'Freelancer', bal: '0.0068' },
+  arbiter:    { addr: ARBITER,  label: 'Arbiter',    bal: '0.001'  },
+  observer:   { addr: OBSERVER, label: 'Pengamat',   bal: '0.0025' },
+};
+
+/* dibaca dari GET /api/chain-info di FE sungguhan — hanya untuk DITAMPILKAN */
+const BOND_BPS = 500n, STRUCT_BPS = 2000n, VERIFY_TIMEOUT = 7 * D;
+const GAS_WEI = 12000000000000n;   // 0.1 gwei x 120k gas, terukur 2026-09-24
+
+const ENGINES = { 'claude-ringkas': 'Claude (ringkas)', 'claude-naratif': 'Claude (naratif)' };
+const MODEL = 'claude-sonnet-4-6';
+const LIMITS = { brand: 100, brief: 1000, query: 300, deliverable: 20000 };
+const MIN_DELIVERABLE = 40;
+
+/* ---------------- 13 status: disalin dari lib/status.ts ---------------- */
+const UI_STATUS_META = {
+  baseline_running:  { label: 'Mengukur baseline…',    cls: 'st-amber',  spin: true },
+  baseline_failed:   { label: 'Baseline gagal',        cls: 'st-rose',   retryable: true },
+  open:              { label: 'Terbuka',               cls: 'st-violet' },
+  in_progress:       { label: 'Dikerjakan',            cls: 'st-violet' },
+  submitted_pending: { label: 'Cek struktural…',       cls: 'st-amber',  spin: true },
+  structural_failed: { label: 'Cek struktural gagal',  cls: 'st-rose',   retryable: true },
+  awaiting_verify:   { label: 'Menunggu verifikasi',   cls: 'st-amber' },
+  verifying:         { label: 'Oracle memverifikasi…', cls: 'st-amber',  spin: true },
+  dispute:           { label: 'Zona abu · perlu juri', cls: 'st-warn' },
+  settled_release:   { label: 'Selesai · dana cair',   cls: 'st-mint' },
+  settled_refund:    { label: 'Selesai · refund',      cls: 'st-rose' },
+  jury_release:      { label: 'Juri: dana cair',       cls: 'st-mint' },
+  jury_refund:       { label: 'Juri: refund',          cls: 'st-rose' },
+};
+function deriveUiStatus(job) {
+  const failed = job.job_state === 'error';
+  switch (job.status) {
+    case 'Open':         if (job.baseline_score !== null) return 'open'; return failed ? 'baseline_failed' : 'baseline_running';
+    case 'Accepted':     return 'in_progress';
+    case 'Submitted':    return failed ? 'structural_failed' : 'submitted_pending';
+    case 'Verifying':    return job.job_state === 'running_verify' ? 'verifying' : 'awaiting_verify';
+    case 'Disputed':     return 'dispute';
+    case 'ReleasedFull': return job.settled_by === 'arbiter' ? 'jury_release' : 'settled_release';
+    case 'Refunded':     return job.settled_by === 'arbiter' ? 'jury_refund' : 'settled_refund';
+  }
+}
+const MARKET_FILTERS = { all: null, open: ['Open'], progress: ['Accepted', 'Submitted', 'Verifying'], dispute: ['Disputed'], done: ['ReleasedFull', 'Refunded'] };
+const SETTLED = ['ReleasedFull', 'Refunded'];
+
+/* lib/scoring.ts — aritmetika integer, tanpa epsilon */
+function decide(score, of, target, n) {
+  if (score * n >= target * of) return 'release';
+  if (score * n <= target * of - 2 * n) return 'refund';
+  return 'dispute';
+}
+const scaledTarget = (target, of, n) => (target / n) * of;
+/* lib/vrf.ts */
+const subsetSize = n => Math.min(n, Math.max(3, Math.ceil(n * 0.7)));
+
+/* ---------------- util ---------------- */
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+const WEI = 10n ** 18n;
+function toWei(t) {
+  const [i, f = ''] = String(t).trim().split('.');
+  return (BigInt(i || '0') * WEI + BigInt((f + '0'.repeat(18)).slice(0, 18) || '0')).toString();
+}
+function amt(wei) {
+  const w = BigInt(wei), neg = w < 0n, a = neg ? -w : w;
+  const f = (a % WEI).toString().padStart(18, '0').replace(/0+$/, '');
+  return (neg ? '-' : '') + (a / WEI).toString() + (f ? '.' + f : '');
+}
+const formatTBNB = w => amt(w) + ' tBNB';
+/* uang untuk DITAMPILKAN: sans + angka tabular, satuan diredam. Mono hanya untuk alamat & hash. */
+const money = w => '<span class="num">' + amt(w) + '<span class="u">tBNB</span></span>';
+const shortAddr = a => !a ? '' : a.length <= 12 ? a : a.slice(0, 6) + '…' + a.slice(-4);
+const shortHash = h => !h ? '' : h.slice(0, 8) + '…' + h.slice(-6);
+const same = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+const fmtNum = x => Number(x).toLocaleString('id-ID', { maximumFractionDigits: 1 });
+function formatTime(ts) {
+  try { return new Date(ts).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+  catch (e) { return ''; }
+}
+function relTime(ts) {
+  const d = ts - Date.now(), a = Math.abs(d), fut = d > 0;
+  if (a < MIN) return fut ? 'sebentar lagi' : 'baru saja';
+  const s = a < H ? Math.round(a / MIN) + ' menit' : a < D ? Math.round(a / H) + ' jam' : Math.round(a / D) + ' hari';
+  return fut ? 'dalam ' + s : s + ' lalu';
+}
+/* hash palsu tapi deterministik — di FE sungguhan: keccak256 lewat lib/hash.ts */
+function fakeHash(seed) {
+  let h = 0x811c9dc5, out = '';
+  const s = String(seed);
+  for (let r = 0; r < 8; r++) {
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i) + r * 31; h = Math.imul(h, 0x01000193) >>> 0; }
+    h ^= h >>> 13; h = Math.imul(h, 0x5bd1e995) >>> 0; h = (h ^ (h >>> 15)) >>> 0;   // >>> 0: XOR mengembalikan int32 BERTANDA
+    out += h.toString(16).padStart(8, '0');
+  }
+  return '0x' + out;
+}
+function rng(seed) {
+  let a = parseInt(fakeHash(seed).slice(2, 10), 16);
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+}
+const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function textHitsBrand(text, brand) {
+  const b = (brand || '').trim();
+  if (!text || !b) return false;
+  try { return new RegExp('\\b' + escRe(b) + '\\b', 'i').test(text); }
+  catch (e) { return text.toLowerCase().includes(b.toLowerCase()); }
+}
+function markBrand(html, brand) {
+  const b = esc(brand);
+  try { return html.replace(new RegExp('\\b(' + escRe(b) + ')\\b', 'gi'), '<mark>$1</mark>'); }
+  catch (e) { return html; }
+}
+function avatar(addr, size) {
+  size = size || 22;
+  const a = (addr || '0x0000000000').toLowerCase();
+  const h1 = parseInt(a.slice(2, 6), 16) % 360;
+  const h2 = (h1 + 50 + parseInt(a.slice(-3), 16) % 110) % 360;
+  return '<span class="av" style="width:' + size + 'px;height:' + size + 'px;background:linear-gradient(135deg,hsl(' + h1 + ' 60% 60%),hsl(' + h2 + ' 55% 42%))"></span>';
+}
+const MONO_HUES = [12, 26, 38, 148, 164, 182, 198, 212];
+function monogram(brand, size) {
+  const w = String(brand).replace(/[^A-Za-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
+  const txt = ((w[0] || '?')[0] + (w[1] ? w[1][0] : (w[0] || '').slice(1, 2))).toUpperCase();
+  const h = MONO_HUES[parseInt(fakeHash('m' + brand).slice(2, 6), 16) % MONO_HUES.length];
+  return '<span class="mono-tile" aria-hidden="true" style="--h:' + h + ';width:' + size + 'px;height:' + size + 'px;font-size:' + Math.round(size * .38) + 'px">' + esc(txt) + '</span>';
+}
+const toLocalInput = ms => { const d = new Date(ms); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+
+/* ---------------- ikon (garis 1.75, gaya Lucide) ---------------- */
+const P = {
+  dash: '<rect x="3.5" y="3.5" width="7" height="8.5" rx="1.6"/><rect x="13.5" y="3.5" width="7" height="5" rx="1.6"/><rect x="13.5" y="11.5" width="7" height="9" rx="1.6"/><rect x="3.5" y="15" width="7" height="5.5" rx="1.6"/>',
+  store: '<path d="M4 10.2V20h16v-9.8"/><path d="M3 10a2.6 2.6 0 0 0 5.2 0 2.6 2.6 0 0 0 5.2 0 2.6 2.6 0 0 0 5.2 0 2.6 2.6 0 0 0 2.4-2.6L19.3 4H4.7L3 7.4"/><path d="M9.5 20v-5h5v5"/>',
+  plus: '<rect x="3.5" y="3.5" width="17" height="17" rx="4"/><path d="M12 8.5v7M8.5 12h7"/>',
+  folder: '<path d="M3.5 7.5A2 2 0 0 1 5.5 5.5H9l2 2h7.5a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+  radar: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12l6-6"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/>',
+  ledger: '<path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.8" cy="6.5" r="1.1" fill="currentColor" stroke="none"/><circle cx="4.8" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="4.8" cy="17.5" r="1.1" fill="currentColor" stroke="none"/>',
+  wallet: '<rect x="3" y="6" width="18" height="13.5" rx="2.5"/><path d="M3 10h18"/><path d="M16.5 14.8h1.5"/><path d="M6 6V5.2A1.2 1.2 0 0 1 7.2 4h9.6A1.2 1.2 0 0 1 18 5.2V6"/>',
+  lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2.2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  x: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  alert: '<path d="M10.3 4.2L2.9 17.3A2 2 0 0 0 4.6 20.3h14.8a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4M12 17h.01"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.8h.01"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 2"/>',
+  dot: '<circle cx="12" cy="12" r="4.2" fill="currentColor" stroke="none"/>',
+  ext: '<path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10"/>',
+  copy: '<rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2"/><path d="M15.5 8.5V6A1.5 1.5 0 0 0 14 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/>',
+  left: '<path d="M15 18l-6-6 6-6"/>', down: '<path d="M6 9l6 6 6-6"/>', right: '<path d="M9 18l6-6-6-6"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  refresh: '<path d="M20 11.5A8 8 0 0 0 5.6 7M4 4v4h4"/><path d="M4 12.5A8 8 0 0 0 18.4 17M20 20v-4h-4"/>',
+  scale: '<path d="M12 4v16M8 20h8M5 7h14"/><path d="M5 7l-3 6.5a3 3 0 0 0 6 0z"/><path d="M19 7l-3 6.5a3 3 0 0 0 6 0z"/>',
+  shield: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z"/><path d="M8.8 12l2.2 2.2 4.3-4.4"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.6 2.3c-.7.3-1.2 1-1.2 1.8v.3M12 17h.01"/>',
+  logout: '<path d="M14.5 4H18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3.5"/><path d="M10 16.5L5.5 12 10 7.5M5.5 12H15"/>',
+  spark: '<path d="M12 3.5l1.9 5.5 5.6 2-5.6 2-1.9 5.5-1.9-5.5-5.6-2 5.6-2z"/>',
+  file: '<path d="M14 3.5H7A2.5 2.5 0 0 0 4.5 6v12A2.5 2.5 0 0 0 7 20.5h10a2.5 2.5 0 0 0 2.5-2.5V9z"/><path d="M14 3.5V9h5.5M8.5 13h7M8.5 16.5h4.5"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  zap: '<path d="M13 2.5L4.5 13.5H11l-1 8 8.5-11H12z"/>',
+  sliders: '<path d="M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="17" r="2"/>',
+  hash: '<path d="M5 9h15M4 15h15M10.5 3.5l-2 17M15.5 3.5l-2 17"/>',
+  palette: '<path d="M12 3.5a8.5 8.5 0 0 0 0 17c1.1 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-.9.8-1.7 1.7-1.7h2A4.5 4.5 0 0 0 21 10.2C21 6.4 17 3.5 12 3.5z"/><circle cx="7.5" cy="11.5" r="1" fill="currentColor" stroke="none"/><circle cx="10.5" cy="7.5" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="7.8" r="1" fill="currentColor" stroke="none"/>',
+  in: '<path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/>',
+  out: '<path d="M12 20V9M7 13.5l5-5 5 5M5 4h14"/>',
+  target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1.2" fill="currentColor" stroke="none"/>',
+  users: '<circle cx="9" cy="8.5" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 5.3a3.5 3.5 0 0 1 0 6.4M21.5 20a6.5 6.5 0 0 0-4-6"/>',
+  briefcase: '<rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M8.5 7V5.5A1.5 1.5 0 0 1 10 4h4a1.5 1.5 0 0 1 1.5 1.5V7M3 12.5h18"/>',
+  flag: '<path d="M5 21V4.5M5 4.5h11l-2 4 2 4H5"/>',
+};
+const ic = (n, c) => '<svg class="i' + (c ? ' ' + c : '') + '" viewBox="0 0 24 24" aria-hidden="true">' + (P[n] || '') + '</svg>';
+function brandMark(s) {
+  s = s || 28;
+  return '<svg class="brand-mark" width="' + s + '" height="' + s + '" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="7.5" style="fill:var(--mark)"/><circle cx="14" cy="14" r="7.8" fill="none" stroke="#fff" stroke-opacity=".28" stroke-width="1.5"/><circle cx="14" cy="14" r="3.6" fill="none" stroke="#fff" stroke-width="1.7"/><path d="M14 14l5.5-5.5" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/><circle cx="19.6" cy="8.4" r="2.1" style="fill:var(--mark-dot)"/></svg>';
+}
+
+/* ---------------- badge status ---------------- */
+const TONE_ICON = { 'st-mint': 'check', 'st-rose': 'x', 'st-warn': 'alert', 'st-violet': 'dot', 'st-amber': 'clock' };
+function badge(ui, lg) {
+  const m = UI_STATUS_META[ui];
+  const icon = m.spin ? '<span class="spin" aria-hidden="true"></span>' : ic(TONE_ICON[m.cls]);
+  return '<span class="badge ' + m.cls + (lg ? ' badge-lg' : '') + '">' + icon + esc(m.label) + '</span>';
+}
+
+/* ---------------- jawaban AI contoh ---------------- */
+function answerFor(job, engine, hit) {
+  const b = job.brand, c = job._cat || 'kebutuhan ini', u = job._usp || 'kualitasnya konsisten';
+  const nar = engine === 'claude-naratif';
+  if (hit) return nar
+    ? 'Kalau Anda mencari ' + c + ', ada beberapa nama yang cukup sering muncul dalam ulasan. Salah satunya ' + b + ', yang banyak dibahas karena ' + u + '. Beberapa merek lokal lain juga layak dibandingkan dari sisi harga dan ketersediaan di marketplace.'
+    : b + ' termasuk pilihan yang sering direkomendasikan untuk ' + c + ', terutama karena ' + u + '. Bandingkan juga dengan satu atau dua alternatif lokal sebelum membeli.';
+  return nar
+    ? 'Untuk ' + c + ', pilihan terbaik biasanya bergantung pada kebutuhan dan anggaran. Banyak orang memulai dari merek yang ulasannya konsisten dan mudah ditemukan di marketplace besar, lalu membandingkan komposisi, harga, dan layanan purnajualnya.'
+    : 'Pilihan populer untuk ' + c + ' umumnya merek yang ulasannya konsisten dan mudah ditemukan di marketplace. Bandingkan kualitas, harga, dan ulasan pengguna sebelum memutuskan.';
+}
+const deliverableFor = j => 'Panduan singkat: memilih ' + j._cat + ' yang tepat\n\n' + j.brand + ' dikenal karena ' + j._usp + '. Artikel ini membandingkan ' + j.brand + ' dengan beberapa alternatif populer dari sisi kualitas, harga, dan ketersediaan, dilengkapi FAQ yang menjawab pertanyaan paling sering diajukan pembeli.\n\nKonten yang sama dipublikasikan di blog brand, dua marketplace, dan satu forum komunitas.';
+
+/* ---------------- data contoh: 16 job, satu atau lebih per status ---------------- */
+const SEEDS = [
+  { id: 0, brand: 'Root & Bloom', cat: 'skincare organik', usp: 'bahan alaminya aman untuk kulit sensitif',
+    brief: 'Skincare organik lokal asal Bandung. Ingin lebih sering muncul saat orang bertanya rekomendasi skincare organik ke AI.',
+    q: ['Apa rekomendasi skincare organik terbaik di Indonesia?', 'Brand skincare lokal apa yang bahannya alami dan aman untuk kulit sensitif?', 'Skincare organik mana yang cocok untuk kulit berjerawat?', 'Ada rekomendasi serum wajah organik buatan lokal?', 'Brand skincare ramah lingkungan apa yang layak dicoba di Indonesia?'],
+    target: 3, budget: '0.003', client: CLIENT, status: 'Open', base: [1, 0, 0, 0, 0], ago: 5 * H, deadline: 46 * H },
+  { id: 1, brand: 'Kopi Rasa Nusantara', cat: 'kopi bubuk lokal', usp: 'biji arabika Gayo yang disangrai segar',
+    brief: 'Roastery kopi dari Aceh. Target: disebut saat orang minta rekomendasi kopi lokal untuk seduh manual.',
+    q: ['Kopi bubuk lokal apa yang enak untuk V60?', 'Rekomendasi kopi arabika Gayo yang bisa dibeli online?', 'Brand kopi lokal Indonesia apa yang kualitasnya setara specialty?', 'Kopi apa yang cocok untuk pemula seduh manual?', 'Roastery Indonesia mana yang menjual biji kopi segar?', 'Oleh-oleh kopi khas Aceh yang direkomendasikan?'],
+    target: 4, budget: '0.005', client: CLIENT_B, status: 'Open', state: 'running_baseline', base: [0, 1, 0, 0, 0, 0], baseDone: 2, ago: 2 * MIN, deadline: 72 * H },
+  { id: 2, brand: 'Batik Nara', cat: 'batik tulis modern', usp: 'motif kontemporer yang tetap dikerjakan dengan canting',
+    brief: 'Label batik tulis dari Pekalongan dengan desain modern untuk anak muda.',
+    q: ['Brand batik modern apa yang cocok untuk anak muda?', 'Di mana beli batik tulis asli secara online?', 'Rekomendasi kemeja batik untuk kerja kantoran?', 'Brand batik lokal dengan motif kontemporer?'],
+    target: 2, budget: '0.002', client: CLIENT, status: 'Open', state: 'error', lastError: 'Worker timeout -- silakan coba lagi', base: null, ago: 26 * H, deadline: 5 * D },
+  { id: 3, brand: 'Sambal Bu Rini', cat: 'sambal kemasan', usp: 'resep rumahan tanpa pengawet',
+    brief: 'Sambal bawang dan cumi kemasan dari Surabaya, dijual di marketplace.',
+    q: ['Sambal kemasan apa yang paling enak?', 'Rekomendasi sambal botol tanpa pengawet?', 'Sambal cumi kemasan yang direkomendasikan?', 'Oleh-oleh sambal khas Surabaya apa yang terkenal?', 'Sambal kemasan apa yang cocok untuk anak kos?'],
+    target: 3, budget: '0.004', client: CLIENT_B, freelancer: FREEL, status: 'Accepted', base: [0, 1, 0, 0, 0], ago: 30 * H, deadline: 4 * D },
+  { id: 4, brand: 'Teh Kebun Malabar', cat: 'teh lokal premium', usp: 'dipetik dari kebun Pangalengan di ketinggian 1.500 mdpl',
+    brief: 'Teh hitam & hijau single-estate dari Pangalengan.',
+    q: ['Teh lokal Indonesia apa yang kualitasnya premium?', 'Rekomendasi teh hijau asli Indonesia?', 'Brand teh dari Pangalengan yang bisa dibeli online?', 'Teh apa yang cocok untuk hadiah?'],
+    target: 2, budget: '0.003', client: CLIENT, freelancer: FREEL_B, status: 'Submitted', state: 'running_structural', base: [1, 0, 0, 0], ago: 3 * D, deadline: 5 * D },
+  { id: 5, brand: 'Laras Studio', cat: 'studio foto keluarga di Yogyakarta', usp: 'konsep foto natural dengan cahaya jendela',
+    brief: 'Studio foto keluarga & maternity di Yogyakarta.',
+    q: ['Studio foto keluarga yang bagus di Jogja?', 'Rekomendasi studio foto maternity di Yogyakarta?', 'Studio foto dengan konsep natural di Jogja?', 'Berapa kisaran harga foto keluarga di studio Jogja?', 'Studio foto wisuda yang direkomendasikan di Yogyakarta?'],
+    target: 3, budget: '0.004', client: CLIENT_B, freelancer: FREEL, status: 'Submitted', state: 'error', lastError: 'confirmStructural gagal: RPC tidak merespons dalam 30 detik', base: [0, 0, 1, 0, 0], ago: 2 * D, deadline: 5 * D },
+  { id: 6, brand: 'Dapur Kencana', cat: 'katering sehat harian di Jakarta', usp: 'menu rendah gula yang disusun ahli gizi',
+    brief: 'Katering diet harian di Jakarta Selatan dengan menu yang disusun ahli gizi.',
+    q: ['Katering sehat harian yang enak di Jakarta?', 'Rekomendasi katering diet rendah gula?', 'Katering untuk program diet kantor di Jakarta Selatan?', 'Layanan meal plan sehat dengan ahli gizi?', 'Katering sehat yang bisa langganan mingguan?'],
+    target: 3, budget: '0.005', client: CLIENT, freelancer: FREEL, status: 'Verifying', base: [0, 0, 1, 0, 0], ago: 4 * D, structAgo: 3 * H, deadline: 6 * D },
+  { id: 7, brand: 'Nusa Linen', cat: 'sprei linen lokal', usp: 'linen rami yang makin lembut setelah dicuci',
+    brief: 'Sprei & sarung bantal linen rami buatan Bandung.',
+    q: ['Sprei linen lokal yang bagus?', 'Rekomendasi sprei yang adem untuk iklim tropis?', 'Brand bedding lokal Indonesia yang premium?', 'Sprei rami asli bisa dibeli di mana?', 'Hadiah pernikahan berupa sprei yang berkelas?', 'Sprei yang aman untuk kulit sensitif?'],
+    target: 4, budget: '0.004', client: CLIENT_B, freelancer: FREEL_B, status: 'Verifying', state: 'running_verify', base: [0, 0, 0, 1, 0, 0], verif: { subset: [0, 1, 3, 4, 5], hits: [1, 1, 1, 0, 1], done: 2 }, ago: 5 * D, structAgo: 20 * MIN, deadline: 7 * D },
+  { id: 8, brand: 'Warung Sehat Kita', multi: true, cat: 'makanan sehat siap saji', usp: 'bahan organik dari petani lokal',
+    brief: 'Warung makan sehat di Bandung dengan bahan organik dari petani sekitar.',
+    q: ['Tempat makan sehat di Bandung?', 'Rekomendasi warung makan organik?', 'Restoran vegetarian yang terjangkau di Bandung?', 'Makanan sehat untuk makan siang kantor di Bandung?', 'Warung dengan bahan dari petani lokal?'],
+    target: 3, budget: '0.004', client: CLIENT, freelancer: FREEL, status: 'Disputed', base: [0, 0, 1, 0, 0], verif: { subset: [0, 2, 3, 4], hits: [1, 0, 1, 0] }, ago: 6 * D, deadline: 8 * D },
+  { id: 9, brand: 'Kayu Arum', multi: true, cat: 'furnitur kayu jati', usp: 'kayu jatinya bersertifikat SVLK',
+    brief: 'Furnitur jati minimalis dari Jepara, bersertifikat legal.',
+    q: ['Furnitur kayu jati minimalis yang bagus?', 'Brand mebel Jepara yang bisa kirim ke luar kota?', 'Meja makan jati berkualitas beli di mana?', 'Furnitur kayu legal bersertifikat SVLK?'],
+    target: 2, budget: '0.005', client: CLIENT_B, freelancer: FREEL, status: 'ReleasedFull', settled: 'oracle', base: [0, 0, 0, 0], verif: { subset: [0, 1, 3], hits: [1, 1, 1] }, ago: 9 * D, deadline: 10 * D },
+  { id: 10, brand: 'Madu Hutan Sumbawa', cat: 'madu hutan asli', usp: 'dipanen liar dari hutan Sumbawa tanpa campuran',
+    brief: 'Madu hutan liar asli Sumbawa, uji lab tiap batch.',
+    q: ['Madu hutan asli yang terpercaya?', 'Rekomendasi madu Sumbawa murni?', 'Merek madu apa yang aman dan terbukti asli?', 'Madu untuk daya tahan tubuh anak?', 'Oleh-oleh madu khas NTB?'],
+    target: 4, budget: '0.003', client: CLIENT, freelancer: FREEL_B, status: 'Refunded', settled: 'oracle', base: [0, 0, 0, 1, 0], verif: { subset: [1, 2, 3, 4], hits: [0, 0, 1, 0] }, ago: 12 * D, deadline: 13 * D },
+  { id: 11, brand: 'Serat Tenun', cat: 'kain tenun ikat', usp: 'ditenun tangan oleh perajin Sumba',
+    brief: 'Kain tenun ikat Sumba untuk interior & busana.',
+    q: ['Di mana beli kain tenun Sumba asli?', 'Brand tenun ikat untuk dekorasi rumah?', 'Rekomendasi kain tenun untuk seragam acara?', 'Tenun lokal yang mendukung perajin?', 'Kain tradisional Indonesia untuk hadiah ke luar negeri?'],
+    target: 3, budget: '0.004', client: CLIENT, freelancer: FREEL, status: 'ReleasedFull', settled: 'arbiter', base: [0, 1, 0, 0, 0], verif: { subset: [0, 1, 2, 4], hits: [1, 0, 1, 0] }, ago: 14 * D, deadline: 15 * D },
+  { id: 12, brand: 'Rempah Ibu', cat: 'bumbu rempah instan', usp: 'racikannya tanpa MSG dari resep keluarga',
+    brief: 'Bumbu rendang, soto, dan gulai instan tanpa MSG.',
+    q: ['Bumbu instan tanpa MSG yang enak?', 'Rekomendasi bumbu rendang kemasan?', 'Bumbu soto instan yang rasanya autentik?', 'Bumbu masak praktis untuk anak kos?', 'Brand bumbu rempah lokal yang sehat?', 'Bumbu gulai kemasan yang direkomendasikan?'],
+    target: 4, budget: '0.002', client: CLIENT_B, freelancer: FREEL, status: 'Refunded', settled: 'arbiter', base: [0, 0, 0, 0, 1, 0], verif: { subset: [0, 1, 2, 3, 5], hits: [1, 1, 0, 1, 0] }, ago: 16 * D, deadline: 17 * D },
+  { id: 13, brand: 'Sabun Lerak Asri', cat: 'deterjen alami', usp: 'dibuat dari buah lerak tanpa bahan kimia keras',
+    brief: 'Sabun cuci alami dari buah lerak, aman untuk batik & kain halus.',
+    q: ['Deterjen alami yang aman untuk batik?', 'Sabun lerak yang bagus merek apa?', 'Sabun cuci ramah lingkungan buatan lokal?', 'Deterjen untuk pakaian bayi yang alami?'],
+    target: 2, budget: '0.002', client: CLIENT, status: 'Open', base: [0, 0, 0, 0], ago: 3 * D, deadline: -5 * H },
+  { id: 14, brand: 'Kopi Lereng Kawi', cat: 'kopi robusta Malang', usp: 'dipetik dari lereng Gunung Kawi dan diproses natural',
+    brief: 'Kopi robusta dari lereng Kawi, Malang.',
+    q: ['Kopi robusta Malang yang enak?', 'Rekomendasi kopi lokal untuk espresso?', 'Kopi dari Gunung Kawi beli di mana?', 'Kopi robusta untuk usaha kedai?'],
+    target: 2, budget: '0.003', client: CLIENT_B, freelancer: FREEL, status: 'Verifying', base: [0, 1, 0, 0], ago: 12 * D, structAgo: 8 * D, deadline: 13 * D },
+  { id: 15, brand: 'Gula Aren Lestari', cat: 'gula aren organik', usp: 'dimasak tradisional tanpa pemutih',
+    brief: 'Gula aren cair & semut organik dari Banten.',
+    q: ['Gula aren organik yang bagus?', 'Rekomendasi gula semut untuk kopi susu?', 'Pemanis alami pengganti gula pasir?', 'Gula aren cair merek apa yang enak?'],
+    target: 2, budget: '0.003', client: CLIENT, freelancer: FREEL, status: 'Accepted', base: [0, 0, 0, 0], rejected: true,
+    lastError: 'Konten harus menyebut nama brand "Gula Aren Lestari" secara eksplisit', ago: 2 * D, deadline: 4 * D },
+];
+
+let ACT_SEQ = 0;
+const BLOCK0 = 48210000, T_BLOCK0 = NOW - 30 * D;
+function mkAct(job, type, amount, from, to, note, ts) {
+  return { id: 'a' + (++ACT_SEQ), job_id: job.job_id, tx_hash: fakeHash('tx' + type + job.job_id + ts), block_number: BLOCK0 + Math.floor((ts - T_BLOCK0) / 450) + ACT_SEQ,
+    type: type, amount_wei: amount == null ? null : String(amount), from_addr: from, to_addr: to, note: note || null, created_at: ts };
+}
+const enginesOf = job => job.multi_engine ? ['claude-ringkas', 'claude-naratif'] : ['claude-ringkas'];
+function makeRun(job, phase, qi, engine, hit, ts) {
+  return { id: 'r' + job.job_id + phase[0] + qi + engine, job_id: job.job_id, phase: phase, query_index: qi, query: job.queries[qi],
+    engine: engine, model: MODEL, hit: !!hit, answer: answerFor(job, engine, hit), latency_ms: 900 + Math.floor(rng(job.job_id + phase + qi + engine)() * 2400), created_at: ts };
+}
+/* hit per-engine: kalau gabungannya 0, gaya ringkas kadang tetap menyebut — memperlihatkan aturan every() */
+const engineHit = (job, qi, engine, agg) => agg ? 1 : (job.multi_engine && engine === 'claude-ringkas' && qi % 2 === 0 ? 1 : 0);
+
+function buildJob(d, t0, deadlineAt) {
+  const n = d.q.length, budget = toWei(d.budget);
+  const freel = d.freelancer || null;
+  const past = !!freel && ['Verifying', 'Disputed', 'ReleasedFull', 'Refunded'].includes(d.status);
+  const job = {
+    job_id: d.id, brand: d.brand, brief: d.brief || null, queries: d.q.slice(), target_count: d.target, multi_engine: !!d.multi,
+    query_pool_hash: fakeHash('pool' + d.id + d.brand), client_addr: d.client, freelancer_addr: freel,
+    budget_wei: budget, bond_wei: freel ? (BigInt(budget) * BOND_BPS / 10000n).toString() : null,
+    structural_released_wei: past ? (BigInt(budget) * STRUCT_BPS / 10000n).toString() : '0',
+    deliverable_content: null, deliverable_hash: null,
+    baseline_score: null, baseline_of: null, baseline_at: null,
+    verification_seed: null, verification_subset: null, verification_score: null, verification_of: null, verification_decision: null, verdict_hash: null,
+    status: d.status, job_state: d.state || 'idle', settled_by: d.settled || null, last_error: d.lastError || null,
+    accept_deadline: deadlineAt, created_at: t0,
+    _cat: d.cat, _usp: d.usp, _rejected: !!d.rejected, _runs: [], _steps: {}, _baseHits: d.base, _verifHits: d.verif ? d.verif.hits : null,
+  };
+  const S = job._steps, span = Math.max(Date.now() - t0, 1), at = f => t0 + Math.round(span * f);
+  const tStruct = d.structAgo != null ? Date.now() - d.structAgo : at(.62);
+  const pre = f => t0 + Math.round((tStruct - t0) * f);
+  S.created = { ts: t0, tx: fakeHash('create' + d.id) };
+
+  const baseDone = d.baseDone != null ? d.baseDone : (d.base ? n : 0);
+  for (let qi = 0; qi < baseDone; qi++) enginesOf(job).forEach(e => job._runs.push(makeRun(job, 'baseline', qi, e, engineHit(job, qi, e, d.base[qi]), t0 + 4000 + qi * 3000)));
+  if (d.base && d.baseDone == null) { job.baseline_score = d.base.reduce((a, b) => a + b, 0); job.baseline_of = n; job.baseline_at = t0 + 25000; S.baseline = { ts: job.baseline_at }; }
+
+  if (freel) S.accepted = { ts: past ? pre(.45) : at(.35), tx: fakeHash('accept' + d.id) };
+  if (freel && (past || d.status === 'Submitted' || d.rejected)) S.submitted = { ts: past ? pre(.85) : at(.6), tx: fakeHash('submit' + d.id) };
+  if (freel && (past || d.status === 'Submitted')) { job.deliverable_content = deliverableFor(job); job.deliverable_hash = fakeHash('deliv' + job.deliverable_content); job.deliverable_submitted_at = S.submitted.ts; }
+  if (past) S.structural = { ts: tStruct, tx: fakeHash('struct' + d.id) };
+
+  if (d.verif) {
+    const done = d.verif.done != null ? d.verif.done : d.verif.subset.length;
+    const tv = S.structural.ts + 60000;
+    job.verification_seed = fakeHash('seed' + d.id);
+    job.verification_subset = d.verif.subset.slice();
+    for (let k = 0; k < done; k++) {
+      const qi = d.verif.subset[k];
+      enginesOf(job).forEach(e => job._runs.push(makeRun(job, 'verification', qi, e, engineHit(job, qi, e, d.verif.hits[k]), tv + k * 3500)));
+    }
+    if (done === d.verif.subset.length) {
+      job.verification_score = d.verif.hits.reduce((a, b) => a + b, 0);
+      job.verification_of = d.verif.subset.length;
+      job.verification_decision = decide(job.verification_score, job.verification_of, job.target_count, n);
+      job.verification_at = tv + done * 3500;
+      job.verdict_hash = fakeHash('verdict' + d.id);
+      S.verified = { ts: job.verification_at };
+    }
+  }
+  if (SETTLED.includes(d.status) && freel) S.settled = { ts: Math.max(at(.92), (S.verified ? S.verified.ts : 0) + 3 * H), tx: fakeHash('settle' + d.id) };
+  job._stuck = d.status === 'Verifying' && job.job_state !== 'running_verify' && !!S.structural && Date.now() - S.structural.ts > VERIFY_TIMEOUT;
+  return job;
+}
+
+function actsForJob(job) {
+  const S = job._steps, out = [], bond = job.bond_wei, remaining = (BigInt(job.budget_wei) - BigInt(job.structural_released_wei)).toString();
+  out.push(mkAct(job, 'deposit', job.budget_wei, job.client_addr, CONTRACT, 'Budget dikunci', S.created.ts));
+  if (S.accepted) out.push(mkAct(job, 'bond_lock', bond, job.freelancer_addr, CONTRACT, 'Bond freelancer dikunci', S.accepted.ts + 1000));
+  if (job._rejected) out.push(mkAct(job, 'structural_rejected', null, ORACLE, CONTRACT, job.last_error, S.submitted.ts + 90000));
+  if (S.structural) out.push(mkAct(job, 'structural_release', job.structural_released_wei, CONTRACT, job.freelancer_addr, 'Lolos cek struktural', S.structural.ts));
+  if (job.verification_decision === 'dispute') out.push(mkAct(job, 'dispute_raised', null, ORACLE, CONTRACT, 'Skor di zona abu', S.verified.ts + 5000));
+  if (S.settled) {
+    const toF = job.status === 'ReleasedFull', byA = job.settled_by === 'arbiter';
+    out.push(mkAct(job, byA ? (toF ? 'jury_release' : 'jury_refund') : (toF ? 'final_release' : 'final_refund'), remaining, CONTRACT, toF ? job.freelancer_addr : job.client_addr, toF ? 'Sisa budget cair' : 'Sisa budget kembali ke client', S.settled.ts));
+    out.push(mkAct(job, toF ? 'bond_return' : 'bond_slash', bond, CONTRACT, toF ? job.freelancer_addr : job.client_addr, toF ? 'Bond dikembalikan' : 'Bond di-slash ke client', S.settled.ts + 1));
+  }
+  return out;
+}
+
+/* ---------------- state ---------------- */
+const PALETTES = {
+  samudra:  { name: 'Samudra',      desc: 'Hijau-biru petrol. Tenang dan tepercaya, tapi jarang dipakai produk kripto — mudah dikenali. Rekomendasi saya.' },
+  emas:     { name: 'Tinta & Emas', desc: 'Tombol hitam, aksen emas — mengangguk ke warna BNB Chain. Paling editorial dan paling mewah.' },
+  laut:     { name: 'Laut',         desc: 'Biru murni yang tidak condong ke ungu. Paling aman, paling mirip aplikasi bank.' },
+  terakota: { name: 'Terakota',     desc: 'Merah bata hangat — terasa lokal dan berkarakter. Paling berani; berisiko dekat dengan warna status gagal.' },
+  asli:     { name: 'Asli',         desc: 'Palet Fase 1 sebelumnya (indigo #2947C4) — untuk pembanding.' },
+};
+function savedStyle() { try { const v = localStorage.getItem('geo-style'); return v === 'premium' || v === 'minimal' ? v : null; } catch (e) { return null; } }
+function savedPalette() { try { const v = localStorage.getItem('geo-palette'); return PALETTES[v] ? v : null; } catch (e) { return null; } }
+const REVIEW0 = { palette: 'samudra', style: 'premium', wallet: 'connected', role: 'client', network: 'ok', data: 'normal', tx: 'ok', installed: 'yes', open: false };
+const state = {
+  jobs: [], activity: [], bal: {},
+  review: Object.assign({}, REVIEW0),
+  walletName: 'MetaMask', modal: null, connecting: null, menu: false, help: false, toast: null,
+  tx: {}, busy: {}, filter: 'all', mineFilter: 'all', logPhase: 'all', detailTab: 'overview', radarPhase: {},
+  draft: null, draftTried: false, pending: null, deliv: {},
+};
+function seedAll() {
+  ACT_SEQ = 0;
+  state.jobs = SEEDS.map(d => buildJob(d, NOW - d.ago, NOW + d.deadline));
+  state.activity = state.jobs.flatMap(actsForJob);
+  state.bal = {};
+  Object.values(ROLES).forEach(r => { state.bal[r.addr] = toWei(r.bal); });
+  state.tx = {}; state.busy = {}; state.deliv = {}; state.radarPhase = {};
+  state.draft = defaultDraft(); state.draftTried = false;
+}
+function defaultDraft() {
+  return { brand: '', brief: '', queries: '', target: '3', budget: '0.003', deadline: toLocalInput(Date.now() + 48 * H), multi: false };
+}
+const acct = () => state.review.wallet === 'connected' ? ROLES[state.review.role] : null;
+const balOf = addr => state.bal[addr] || '0';
+function relation(job) {
+  const a = acct(); if (!a) return null;
+  if (same(a.addr, job.client_addr)) return 'client';
+  if (same(a.addr, job.freelancer_addr)) return 'freelancer';
+  return null;
+}
+const isArbiter = () => { const a = acct(); return !!a && same(a.addr, ARBITER); };
+const expired = job => job.status === 'Open' && job.accept_deadline < Date.now();
+const getJob = id => state.jobs.find(j => j.job_id === id);
+const sortedJobs = () => state.jobs.slice().sort((a, b) => b.created_at - a.created_at);
+function lockedInContract() {
+  let s = 0n;
+  for (const j of state.jobs) {
+    if (SETTLED.includes(j.status)) continue;
+    s += BigInt(j.budget_wei) - BigInt(j.structural_released_wei) + (j.bond_wei ? BigInt(j.bond_wei) : 0n);
+  }
+  return s.toString();
+}
+function addBal(addr, delta) { state.bal[addr] = (BigInt(balOf(addr)) + BigInt(delta)).toString(); }
+function pushAct(a) { state.activity.push(a); }
+
+/* gabung hit per pertanyaan — PERSIS lib/oracle/runner.ts:170-184:
+   hit hanya kalau LOLOS DI SEMUA engine; engine yang belum lengkap = belum ada hasil */
+function hitsFor(job, phase) {
+  const engines = enginesOf(job), per = new Map(), out = new Map();
+  for (const r of job._runs) if (r.phase === phase) { if (!per.has(r.query_index)) per.set(r.query_index, {}); per.get(r.query_index)[r.engine] = r.hit; }
+  for (const [qi, m] of per) if (engines.every(e => e in m)) out.set(qi, engines.every(e => m[e]));
+  return out;
+}
+
+/* =====================================================================
+   RENDER
+   ===================================================================== */
+function route() {
+  const h = (location.hash || '#/').replace(/^#/, '');
+  const parts = h.split('?')[0].split('/').filter(Boolean);
+  if (parts[0] === 'jobs') {
+    const n = Number(parts[1]);
+    // jobId 0 SAH — jangan pernah `if (!id)` (blueprint §A9)
+    return { name: 'job', id: /^\d+$/.test(parts[1] || '') && Number.isSafeInteger(n) && n >= 0 ? n : null };
+  }
+  const map = { '': 'dashboard', market: 'market', create: 'create', 'my-jobs': 'mine', 'oracle-log': 'oracle', activity: 'activity', system: 'system' };
+  return { name: map[parts[0] || ''] || 'notfound' };
+}
+const NAV = [
+  { group: 'Kontrak', items: [
+    { id: 'dashboard', href: '#/', label: 'Ringkasan', short: 'Ringkasan', icon: 'dash' },
+    { id: 'market', href: '#/market', label: 'Pasar', short: 'Pasar', icon: 'store' },
+    { id: 'create', href: '#/create', label: 'Buat kontrak', short: 'Buat', icon: 'plus' },
+    { id: 'mine', href: '#/my-jobs', label: 'Kontrak saya', short: 'Kontrakku', icon: 'folder' } ] },
+  { group: 'Transparansi', items: [
+    { id: 'oracle', href: '#/oracle-log', label: 'Log Oracle', short: 'Oracle', icon: 'radar' },
+    { id: 'activity', href: '#/activity', label: 'Aktivitas', short: 'Aktivitas', icon: 'ledger' } ] },
+];
+const TITLES = { dashboard: 'Ringkasan', market: 'Pasar', create: 'Buat kontrak', mine: 'Kontrak saya', oracle: 'Log Oracle', activity: 'Aktivitas', system: 'Sistem desain', notfound: 'Tidak ditemukan' };
+
+function render() {
+  const r = route();
+  document.documentElement.dataset.palette = state.review.palette;
+  document.documentElement.dataset.style = state.review.style;
+  document.getElementById('app').innerHTML = shell(r);
+  document.title = (r.name === 'job' && getJob(r.id) ? getJob(r.id).brand : TITLES[r.name] || 'GEO Escrow') + ' · GEO Escrow';
+  const af = document.querySelector('[data-autofocus]');
+  if (af) af.focus();
+}
+function shell(r) {
+  return '<div class="app">' + sidebar(r) + '<div class="main">' + topbar(r) +
+    '<main class="content" id="main">' + netBanner() + page(r) + '</main></div></div>' +
+    (state.modal === 'connect' ? connectModal() : '') + (state.help ? helpDrawer() : '') + (state.toast ? toastHtml() : '') + reviewPanel();
+}
+function sidebar(r) {
+  const activeId = r.name === 'job' ? 'market' : r.name;
+  const nav = NAV.map(g => '<div class="nav-group"><div class="nav-label">' + g.group + '</div>' + g.items.map(it =>
+    '<a class="nav-link' + (activeId === it.id ? ' on' : '') + '" href="' + it.href + '" title="' + it.label + '"' + (activeId === it.id ? ' aria-current="page"' : '') + '>' + ic(it.icon) +
+    '<span class="nl-full">' + it.label + '</span><span class="nl-short">' + it.short + '</span></a>').join('') + '</div>').join('');
+  return '<aside class="side"><a class="brand" href="#/">' + brandMark(28) + '<span class="brand-txt"><span class="brand-name">GEO Escrow</span><br><span class="brand-sub">Escrow berbasis hasil AI</span></span></a>' +
+    '<nav class="nav" aria-label="Navigasi utama">' + nav + '</nav>' +
+    '<div class="side-foot">' + walletMini() +
+    '<div class="side-meta"><a href="' + SCAN + '/address/' + CONTRACT + '" target="_blank" rel="noopener">Kontrak <span class="mono">' + shortAddr(CONTRACT) + '</span>' + ic('ext', 'i-xs') + '</a><span>BNB Smart Chain Testnet · 97</span></div></div></aside>';
+}
+function walletMini() {
+  const a = acct();
+  if (!a) return '<div class="wmini"><p>Hubungkan wallet untuk membuat atau mengambil kontrak.</p><button class="btn btn-primary btn-sm btn-block" data-act="connect">' + ic('wallet') + 'Hubungkan wallet</button></div>';
+  return '<div class="wmini"><div class="wmini-top">' + avatar(a.addr, 28) + '<div><div class="wmini-prov">' + esc(state.walletName) + ' · ' + a.label + '</div><div class="wmini-addr mono">' + shortAddr(a.addr) + '</div></div></div>' +
+    '<div class="wmini-bal num">' + amt(balOf(a.addr)) + ' <small>tBNB</small></div></div>';
+}
+function crumbs(r) {
+  const home = '<a href="#/" class="hide-sm-c">GEO Escrow</a><span class="sep hide-sm-c">/</span>';
+  if (r.name === 'job') {
+    const j = getJob(r.id);
+    return home + '<a href="#/market" class="hide-sm-c">Pasar</a><span class="sep hide-sm-c">/</span><span class="cur">' + (j ? esc(j.brand) : 'Tidak ditemukan') + '</span>';
+  }
+  return home + '<span class="cur">' + (TITLES[r.name] || '') + '</span>';
+}
+function topbar(r) {
+  const a = acct();
+  const wrong = a && state.review.network === 'wrong';
+  const net = wrong
+    ? '<button class="net bad" data-act="switch-net" title="Pindah ke BNB Smart Chain Testnet">' + '<i class="net-dot"></i><span>Jaringan salah</span></button>'
+    : '<span class="net" title="BNB Smart Chain Testnet · chain ID 97"><i class="net-dot"></i><span class="hide-sm">BNB Testnet</span><span class="show-sm">Testnet</span></span>';
+  const acctHtml = a
+    ? '<div class="acct-wrap"><button class="acct" data-act="menu" aria-haspopup="true" aria-expanded="' + state.menu + '">' + avatar(a.addr, 22) + '<span class="mono">' + shortAddr(a.addr) + '</span>' + ic('down', 'i-sm') + '</button>' + (state.menu ? acctMenu(a) : '') + '</div>'
+    : '<button class="btn btn-primary btn-sm" data-act="connect">' + ic('wallet') + '<span class="hide-sm">Hubungkan wallet</span><span class="show-sm">Hubungkan</span></button>';
+  return '<header class="top"><a class="top-brand" href="#/" aria-label="Beranda">' + brandMark(26) + '</a><nav class="crumbs" aria-label="Breadcrumb">' + crumbs(r) + '</nav>' +
+    '<div class="top-r">' + net + '<button class="icon-btn" data-act="help" aria-label="Cara kerja" title="Cara kerja">' + ic('help') + '</button>' + acctHtml + '</div></header>';
+}
+function acctMenu(a) {
+  return '<div class="menu" role="menu"><div class="menu-h"><div class="row">' + avatar(a.addr, 34) + '<div><div style="font-size:12px;color:var(--faint)">' + esc(state.walletName) + ' · ' + a.label + '</div><div class="mono" style="font-size:13px">' + shortAddr(a.addr) + '</div></div></div>' +
+    '<div class="bal num">' + amt(balOf(a.addr)) + ' <small>tBNB</small></div></div>' +
+    '<div class="menu-list"><button data-act="copy" data-arg="' + a.addr + '">' + ic('copy') + 'Salin alamat</button>' +
+    '<a href="' + SCAN + '/address/' + a.addr + '" target="_blank" rel="noopener">' + ic('ext') + 'Lihat di BscScan</a>' +
+    '<a href="#/my-jobs">' + ic('folder') + 'Kontrak saya</a>' +
+    '<button class="danger" data-act="disconnect">' + ic('logout') + 'Putuskan koneksi</button></div></div>';
+}
+function netBanner() {
+  if (!acct() || state.review.network !== 'wrong') return '';
+  return '<div class="netbar netbar-w" role="alert"><div class="note">' + ic('alert') + '<div><b>Wallet terhubung ke Ethereum Mainnet.</b> GEO Escrow berjalan di BNB Smart Chain Testnet (chain ID 97). Transaksi dinonaktifkan sampai Anda pindah jaringan.</div></div>' +
+    '<button class="btn btn-secondary btn-sm" data-act="switch-net">' + ic('refresh') + 'Pindah ke BNB Testnet</button></div>';
+}
+function page(r) {
+  switch (r.name) {
+    case 'dashboard': return pageDashboard();
+    case 'market': return pageMarket();
+    case 'create': return pageCreate();
+    case 'mine': return pageMine();
+    case 'job': return pageJob(r.id);
+    case 'oracle': return pageOracle();
+    case 'activity': return pageActivity();
+    case 'system': return pageSystem();
+    default: return empty('alert', 'Halaman tidak ditemukan', 'Alamat ini tidak ada di GEO Escrow.', '<a class="btn btn-secondary" href="#/">Kembali ke Ringkasan</a>');
+  }
+}
+
+/* ---------------- keadaan umum ---------------- */
+function empty(icon, title, sub, action) {
+  return '<div class="empty"><div class="empty-ic">' + ic(icon) + '</div><h3>' + esc(title) + '</h3><p>' + esc(sub) + '</p>' + (action || '') + '</div>';
+}
+function errorState() {
+  return '<div class="empty is-err" role="alert"><div class="empty-ic">' + ic('alert') + '</div><h3>Tidak bisa memuat data</h3><p>Terjadi gangguan di server kami. Dana Anda di kontrak tidak terpengaruh.</p><button class="btn btn-secondary" data-act="retry-load">' + ic('refresh') + 'Coba lagi</button></div>';
+}
+function skJobs(k) {
+  let s = '';
+  for (let i = 0; i < (k || 6); i++) s += '<div class="card job" aria-hidden="true"><div class="job-top"><div style="flex:1"><i class="sk" style="width:28px;height:11px;margin-bottom:8px"></i><i class="sk" style="width:60%;height:16px"></i></div><i class="sk" style="width:84px;height:22px;border-radius:999px"></i></div><i class="sk" style="width:100%;height:13px"></i><i class="sk" style="width:70%;height:13px;margin-top:-6px"></i><i class="sk" style="width:100%;height:6px;margin-top:6px"></i><div class="job-foot"><i class="sk" style="width:90px;height:14px"></i></div></div>';
+  return '<div class="jobs" aria-busy="true">' + s + '</div>';
+}
+function connectPrompt(msg) {
+  return empty('wallet', 'Wallet belum terhubung', msg, '<button class="btn btn-primary" data-act="connect">' + ic('wallet') + 'Hubungkan wallet</button>');
+}
+function pageHead(title, sub, right) {
+  return '<div class="page-head"><div><h1>' + title + '</h1>' + (sub ? '<p class="page-sub">' + sub + '</p>' : '') + '</div>' + (right || '') + '</div>';
+}
+const createBtn = '<a class="btn btn-primary" href="#/create">' + ic('plus') + 'Buat kontrak</a>';
+
+/* ---------------- tombol transaksi (<TxButton> di Fase 5) ---------------- */
+const TX_PHASE = { sign: 'Setujui di wallet…', sent: 'Transaksi terkirim…', confirm: 'Menunggu konfirmasi…', sync: 'Menyinkronkan…' };
+function txSteps(t) {
+  const order = ['sign', 'sent', 'confirm', 'sync'], idx = order.indexOf(t.phase);
+  const labels = ['Tanda tangan', 'Terkirim', 'Terkonfirmasi', 'Sinkron'];
+  return '<ol class="txs" aria-hidden="true">' + labels.map((l, i) => '<li class="' + (i < idx ? 'd' : i === idx ? 'a' : '') + '">' + l + (i === 1 && t.hash && idx >= 1 ? ' <span class="mono">' + shortHash(t.hash) + '</span>' : '') + '</li>').join('') + '</ol>';
+}
+function btnCls(o) { return 'btn btn-' + (o.variant || 'primary') + (o.size ? ' btn-' + o.size : '') + (o.block ? ' btn-block' : ''); }
+function txButton(key, label, o) {
+  o = o || {};
+  const a = acct(), cls = btnCls(o);
+  if (!a) return '<button class="' + cls.replace(/btn-(primary|success|danger)/, 'btn-secondary') + '" data-act="connect">' + ic('wallet') + 'Hubungkan wallet</button>';
+  if (state.review.network === 'wrong') return '<button class="' + cls.replace(/btn-(primary|success|danger|secondary)/, 'btn-net') + '" data-act="switch-net">' + ic('refresh') + 'Pindah ke BNB Testnet</button>';
+  const t = state.tx[key];
+  if (t && TX_PHASE[t.phase]) return '<div class="txw' + (o.block ? ' block' : '') + '"><button class="' + cls + ' busy" disabled aria-live="polite"><span class="spin"></span>' + TX_PHASE[t.phase] + '</button>' + (o.compact ? '' : txSteps(t)) + '</div>';
+  let extra = '';
+  if (t && t.phase === 'rejected') extra = '<p class="tx-msg">' + ic('info') + 'Dibatalkan di wallet. Tidak ada yang terkirim, tidak ada gas terpakai.</p>';
+  if (t && t.phase === 'reverted') extra = '<p class="tx-msg err">' + ic('alert') + '<span>Transaksi ditolak kontrak (revert). Dana tidak berpindah. <button class="lnk" data-act="noop-tx">' + shortHash(t.hash) + '</button></span></p>';
+  return '<div class="txw' + (o.block ? ' block' : '') + '"><button class="' + cls + '" data-act="' + (o.act || 'tx') + '" data-arg="' + key + '"' + (o.disabled ? ' disabled' : '') + '>' + (o.icon ? ic(o.icon) : '') + esc(label) + '</button>' + (o.compact ? '' : extra) + '</div>';
+}
+/* POST biasa (tanpa tanda tangan wallet) */
+function postButton(key, label, o) {
+  o = o || {};
+  const cls = btnCls(o);
+  if (state.busy[key]) return '<button class="' + cls + ' busy" disabled><span class="spin"></span>' + esc(o.busyLabel || 'Memproses…') + '</button>';
+  return '<button class="' + cls + '" data-act="post" data-arg="' + key + '"' + (o.disabled ? ' disabled' : '') + '>' + (o.icon ? ic(o.icon) : '') + esc(label) + '</button>';
+}
+
+/* ---------------- kartu kontrak ---------------- */
+function meter(job) {
+  const n = job.queries.length, tgt = job.target_count / n * 100;
+  const hasV = job.verification_score != null;
+  const ratio = hasV ? job.verification_score / job.verification_of : job.baseline_score != null ? job.baseline_score / n : null;
+  const label = hasV ? 'Verifikasi ' + job.verification_score + '/' + job.verification_of : job.baseline_score != null ? 'Baseline ' + job.baseline_score + '/' + n : 'Baseline belum terukur';
+  const cls = hasV ? ({ release: 'ok', refund: 'lo', dispute: 'mid' })[job.verification_decision] : '';
+  return '<div class="meter" title="Garis hitam = target ' + job.target_count + ' dari ' + n + ' pertanyaan"><div class="meter-bar"><span class="meter-fill ' + cls + '" style="width:' + (ratio ? Math.max(ratio * 100, 3) : 0) + '%"></span><span class="meter-tgt" style="left:' + tgt + '%"></span></div>' +
+    '<div class="meter-l"><span>' + label + '</span><span>Target ' + job.target_count + '/' + n + '</span></div></div>';
+}
+function jobCard(job) {
+  const ui = deriveUiStatus(job), rel = relation(job), a = acct();
+  const canAccept = ui === 'open' && a && !same(a.addr, job.client_addr) && !expired(job);
+  let when = '';
+  if (job.status === 'Open') when = expired(job) ? '<span>· batas ambil lewat</span>' : '<span>· tutup ' + relTime(job.accept_deadline) + '</span>';
+  return '<article class="card job">' +
+    '<div class="job-top"><div class="job-who">' + monogram(job.brand, 40) + '<div><div class="job-id">#' + job.job_id + '</div><h3 class="job-brand"><a href="#/jobs/' + job.job_id + '">' + esc(job.brand) + '</a></h3></div></div>' + badge(ui) + '</div>' +
+    '<p class="job-brief">' + esc(job.brief || 'Tanpa brief.') + '</p>' + meter(job) +
+    '<div class="job-foot"><div class="job-meta"><span class="amt">' + money(job.budget_wei) + '</span>' + when +
+    (rel ? '<span class="tag tag-chain">Anda: ' + (rel === 'client' ? 'Client' : 'Freelancer') + '</span>' : '') +
+    '</div>' +
+    (canAccept ? '<div class="job-actions">' + txButton('accept:' + job.job_id, 'Ambil kontrak', { size: 'sm', compact: true }) + '</div>' : '') +
+    '</div></article>';
+}
+const jobGrid = list => '<div class="jobs">' + list.map(jobCard).join('') + '</div>';
+
+/* =====================================================================
+   HALAMAN
+   ===================================================================== */
+const FLOW_IN = new Set(['deposit', 'bond_lock']);
+const FLOW_OUT = new Set(['structural_release', 'final_release', 'final_refund', 'jury_release', 'jury_refund', 'bond_return', 'bond_slash', 'reclaim']);
+function balanceAt(t) {
+  let b = 0n;
+  for (const e of state.activity) {
+    if (e.amount_wei == null || e.created_at > t) continue;
+    if (FLOW_IN.has(e.type)) b += BigInt(e.amount_wei); else if (FLOW_OUT.has(e.type)) b -= BigInt(e.amount_wei);
+  }
+  return b;
+}
+function sparkSvg(vals) {
+  const W = 300, Hh = 46, max = Math.max.apply(null, vals), min = Math.min.apply(null, vals), r = (max - min) || 1;
+  const pts = vals.map((v, i) => [i / (vals.length - 1) * W, Hh - 4 - (v - min) / r * (Hh - 10)]);
+  const line = pts.map((q, i) => (i ? 'L' : 'M') + q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join(' ');
+  return '<svg class="spark" viewBox="0 0 ' + W + ' ' + Hh + '" preserveAspectRatio="none" role="img" aria-label="Tren saldo kontrak 21 hari"><defs><linearGradient id="spg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="currentColor" stop-opacity=".26"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs>' +
+    '<path d="' + line + ' L' + W + ' ' + Hh + ' L0 ' + Hh + ' Z" fill="url(#spg)"/><path d="' + line + '" fill="none" stroke="currentColor" stroke-width="1.75" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>';
+}
+/* dana milik wallet ini yang masih di kontrak, dan yang sudah diterima dari kontrak */
+function walletSplit(a) {
+  let locked = 0n, got = 0n;
+  for (const j of state.jobs) {
+    if (SETTLED.includes(j.status)) continue;
+    if (same(j.client_addr, a.addr)) locked += BigInt(j.budget_wei) - BigInt(j.structural_released_wei);
+    if (same(j.freelancer_addr, a.addr) && j.bond_wei) locked += BigInt(j.bond_wei);
+  }
+  for (const e of state.activity) if (e.amount_wei != null && FLOW_OUT.has(e.type) && same(e.to_addr, a.addr)) got += BigInt(e.amount_wei);
+  return '<div class="bal-split"><div><span>Terkunci atas nama Anda</span><b>' + money(locked.toString()) + '</b></div><div><span>Diterima dari kontrak</span><b>' + money(got.toString()) + '</b></div></div>';
+}
+function heroTrend() {
+  const N = 30, t1 = Date.now(), t0 = t1 - 21 * D, vals = [];
+  // Number() di sini HANYA untuk menggambar grafik — angka yang DITAMPILKAN tetap BigInt lewat amt()
+  for (let i = 0; i < N; i++) vals.push(Number(balanceAt(t0 + (t1 - t0) * i / (N - 1))) / 1e18);
+  const d7 = balanceAt(t1) - balanceAt(t1 - 7 * D);
+  const sign = d7 > 0n ? '+' : d7 < 0n ? '−' : '±';
+  return sparkSvg(vals) + '<div class="trend"><span class="trend-v ' + (d7 >= 0n ? 'up' : 'dn') + '">' + sign + amt(d7 < 0n ? -d7 : d7) + ' tBNB</span><span>7 hari terakhir</span></div>';
+}
+function pageDashboard() {
+  const head = pageHead('Ringkasan', 'Dana, kontrak, dan hasil verifikasi Anda dalam satu tempat.', createBtn);
+  const m = state.review.data;
+  if (m === 'error') return head + errorState();
+  const a = acct(), jobs = m === 'empty' ? [] : state.jobs;
+  const loading = m === 'loading';
+  const sk = w => '<i class="sk" style="width:' + w + ';height:30px;margin-top:18px"></i>';
+
+  const walletCard = a
+    ? '<div class="card bal"><div class="bal-top"><span class="bal-l">' + ic('wallet') + 'Wallet saya</span><span class="bal-addr mono">' + shortAddr(a.addr) + '<button class="copy" data-act="copy" data-arg="' + a.addr + '" aria-label="Salin alamat">' + ic('copy') + '</button></span></div>' +
+      (loading ? sk('55%') : '<div class="bal-n num">' + amt(balOf(a.addr)) + '<small>tBNB</small></div>') +
+      (loading ? '' : walletSplit(a)) + '<div class="bal-f">' + esc(state.walletName) + ' · BNB Smart Chain Testnet</div></div>'
+    : '<div class="card bal"><div class="bal-top"><span class="bal-l">' + ic('wallet') + 'Wallet saya</span></div><div class="bal-empty"><p>Hubungkan wallet untuk melihat saldo dan kontrak yang melibatkan Anda.</p><button class="btn btn-primary btn-sm" data-act="connect">' + ic('wallet') + 'Hubungkan wallet</button></div></div>';
+  const lockedCard = '<div class="card bal hero"><div class="bal-top"><span class="bal-l">' + ic('lock') + 'Terkunci di kontrak</span><a class="bal-addr mono" href="' + SCAN + '/address/' + CONTRACT + '" target="_blank" rel="noopener">' + shortAddr(CONTRACT) + '&nbsp;' + ic('ext', 'i-xs') + '</a></div>' +
+    (loading ? sk('45%') : '<div class="bal-n num">' + amt(m === 'empty' ? '0' : lockedInContract()) + '<small>tBNB</small></div>') +
+    (loading || m === 'empty' ? '' : heroTrend()) + '<div class="bal-f">Budget dan bond dari semua kontrak yang masih berjalan.</div></div>';
+
+  let asC = 0, asF = 0, jury = 0, done = 0;
+  jobs.forEach(j => { const r = relation(j); if (r === 'client') asC++; if (r === 'freelancer') asF++; if (j.status === 'Disputed') jury++; if (r && SETTLED.includes(j.status)) done++; });
+  const st = (l, n, h, icn) => '<div class="stat"><div class="stat-l"><span class="stat-ic">' + ic(icn) + '</span>' + l + '</div><div class="stat-n num">' + (loading ? '<i class="sk" style="width:36px;height:26px"></i>' : n) + '</div><div class="stat-h">' + h + '</div></div>';
+  const dash = a ? null : '—';
+  const stats = '<div class="card stats">' + st('Sebagai client', dash || asC, 'Kontrak yang Anda danai', 'wallet') + st('Sebagai freelancer', dash || asF, 'Kontrak yang Anda kerjakan', 'briefcase') + st('Perlu juri', jury, 'Seluruh pasar, zona abu', 'scale') + st('Selesai', dash || done, a ? 'Kontrak Anda yang tuntas' : 'Hubungkan wallet', 'check') + '</div>';
+
+  const recent = sortedJobs().slice(0, 3);
+  const recentHtml = loading ? skJobs(3) : jobs.length ? jobGrid(recent) : empty('store', 'Belum ada kontrak', 'Kontrak GEO pertama akan muncul di sini begitu dibuat.', createBtn);
+  return head + '<div class="bal-grid">' + walletCard + lockedCard + '</div>' + stats +
+    '<div class="sec-head"><h2>Kontrak terbaru</h2><a href="#/market">Lihat pasar ' + ic('arrow', 'i-sm') + '</a></div>' + recentHtml;
+}
+
+function pageMarket() {
+  const head = pageHead('Pasar kontrak', 'Kontrak yang bisa diambil, sedang berjalan, dan sudah selesai.', createBtn);
+  const m = state.review.data;
+  if (m === 'error') return head + errorState();
+  const jobs = m === 'empty' ? [] : sortedJobs();
+  const F = [['all', 'Semua'], ['open', 'Terbuka'], ['progress', 'Berjalan'], ['dispute', 'Perlu juri'], ['done', 'Selesai']];
+  const inF = (j, f) => !MARKET_FILTERS[f] || MARKET_FILTERS[f].includes(j.status);
+  const seg = '<div class="seg-wrap"><div class="seg" role="tablist">' + F.map(p => '<button role="tab" aria-selected="' + (state.filter === p[0]) + '" class="' + (state.filter === p[0] ? 'on' : '') + '" data-act="filter" data-arg="' + p[0] + '">' + p[1] + '<span class="cnt num">' + (m === 'loading' ? '·' : jobs.filter(j => inF(j, p[0])).length) + '</span></button>').join('') + '</div></div>';
+  if (m === 'loading') return head + seg + skJobs(6);
+  const list = jobs.filter(j => inF(j, state.filter));
+  return head + seg + (list.length ? jobGrid(list) : empty('store', 'Belum ada kontrak di filter ini', 'Coba filter lain, atau buat kontrak baru.', state.filter === 'all' ? createBtn : ''));
+}
+
+function pageMine() {
+  const head = pageHead('Kontrak saya', 'Kontrak yang Anda danai atau kerjakan dengan wallet ini.');
+  const a = acct();
+  if (!a) return head + connectPrompt('Hubungkan wallet untuk melihat kontrak yang Anda danai atau kerjakan.');
+  const m = state.review.data;
+  if (m === 'error') return head + errorState();
+  if (m === 'loading') return head + skJobs(3);
+  const all = m === 'empty' ? [] : sortedJobs().filter(j => relation(j));
+  const F = [['all', 'Semua'], ['client', 'Sebagai client'], ['freelancer', 'Sebagai freelancer']];
+  const seg = '<div class="seg-wrap"><div class="seg">' + F.map(p => '<button class="' + (state.mineFilter === p[0] ? 'on' : '') + '" data-act="mine" data-arg="' + p[0] + '">' + p[1] + '<span class="cnt num">' + all.filter(j => p[0] === 'all' || relation(j) === p[0]).length + '</span></button>').join('') + '</div></div>';
+  const list = all.filter(j => state.mineFilter === 'all' || relation(j) === state.mineFilter);
+  const emptyMsg = isArbiter()
+    ? empty('scale', 'Wallet ini adalah arbiter', 'Arbiter tidak menjadi client atau freelancer. Kontrak yang menunggu putusan Anda ada di Pasar → Perlu juri.', '<button class="btn btn-secondary" data-act="goto-dispute">' + ic('scale') + 'Lihat yang perlu juri</button>')
+    : empty('folder', 'Belum ada kontrak', 'Kontrak yang Anda buat atau ambil akan muncul di sini.', createBtn);
+  return head + (all.length ? seg : '') + (list.length ? jobGrid(list) : emptyMsg);
+}
+
+/* ---------------- Buat kontrak ---------------- */
+const parseQueries = s => s.replace(/\r/g, '').split('\n').map(x => x.trim()).filter(Boolean);
+function parseBudget(s) { const t = String(s).trim().replace(',', '.'); return /^\d+(\.\d{1,18})?$/.test(t) ? BigInt(toWei(t)) : null; }
+function canonicalPool(d) {
+  const qs = parseQueries(d.queries);
+  return ['GEOv1', d.brand.trim(), String(parseInt(d.target, 10) || 0), d.multi ? '1' : '0', String(qs.length)].concat(qs).join('\n');
+}
+function validateDraft(d) {
+  const e = {}, qs = parseQueries(d.queries), a = acct(), brand = d.brand.trim();
+  if (!brand) e.brand = 'Nama brand wajib diisi.';
+  else if (brand.length > LIMITS.brand) e.brand = 'Maksimal ' + LIMITS.brand + ' karakter.';
+  if (d.brief.length > LIMITS.brief) e.brief = 'Maksimal 1.000 karakter.';
+  if (qs.length < 3) e.queries = 'Minimal 3 pertanyaan — baru ' + qs.length + '.';
+  else if (qs.length > 6) e.queries = 'Maksimal 6 pertanyaan — ada ' + qs.length + '.';
+  else if (new Set(qs.map(q => q.toLowerCase())).size !== qs.length) e.queries = 'Ada pertanyaan yang kembar. Pertanyaan kembar membayar AI dua kali untuk informasi yang sama.';
+  else if (qs.some(q => q.length > LIMITS.query)) e.queries = 'Satu pertanyaan maksimal ' + LIMITS.query + ' karakter.';
+  const t = Number(d.target), maxT = Math.max(Math.min(qs.length, 6), 1);
+  if (!Number.isInteger(t) || t < 1 || t > maxT) e.target = 'Bilangan bulat 1–' + maxT + '.';
+  const b = parseBudget(d.budget);
+  if (b === null || b <= 0n) e.budget = 'Masukkan jumlah tBNB yang valid, mis. 0.003';
+  else if (a && b + GAS_WEI > BigInt(balOf(a.addr))) e.budget = 'Saldo tidak cukup — tersedia ' + formatTBNB(balOf(a.addr)) + ' termasuk gas.';
+  const dl = Date.parse(d.deadline);
+  if (Number.isNaN(dl)) e.deadline = 'Pilih tanggal dan jam.';
+  else if (dl < Date.now() + H) e.deadline = 'Minimal 1 jam dari sekarang. Server memeriksa ulang saat metadata disimpan, yaitu setelah transaksi terkonfirmasi.';
+  return { e: e, qs: qs, b: b, dl: dl };
+}
+function summaryHtml(d) {
+  const b = parseBudget(d.budget) || 0n;
+  const row = (l, v, c) => '<div class="sum-row' + (c ? ' ' + c : '') + '"><dt>' + l + '</dt><dd class="num">' + v + '</dd></div>';
+  return row('Budget dikunci di kontrak', money(b)) +
+    row('Bond yang dikunci freelancer · 5%', money(b * BOND_BPS / 10000n)) +
+    row('Cair saat lolos cek struktural · 20%', money(b * STRUCT_BPS / 10000n)) +
+    row('Estimasi gas createJob', '≈ ' + money(GAS_WEI)) +
+    row('Total keluar dari wallet', money(b + GAS_WEI), 'total');
+}
+function pageCreate() {
+  const head = pageHead('Buat kontrak GEO', 'Tentukan target, kunci dana di kontrak, dan biarkan Oracle mengukur hasilnya.');
+  const a = acct();
+  if (!a) return head + '<div class="form">' + connectPrompt('Hubungkan wallet untuk membuat kontrak. Alamat yang terhubung akan tercatat sebagai client di blockchain.') + '</div>';
+  const d = state.draft, v = validateDraft(d), E = state.draftTried ? v.e : {};
+  const qn = v.qs.length;
+  const err = f => '<div class="errm" id="err-' + f + '">' + (E[f] ? ic('alert') + '<span>' + esc(E[f]) + '</span>' : '') + '</div>';
+  const cls = f => E[f] ? ' err' : '';
+  const busy = state.tx.create && TX_PHASE[state.tx.create.phase];
+  const ro = busy ? ' readonly' : '';
+  return head + '<div class="card form">' +
+    '<div class="fsec"><div class="fsec-h"><div><h3>Brand</h3><p>Nama brand dan pertanyaan dikunci di blockchain setelah kontrak dibuat.</p></div><button class="btn btn-ghost btn-sm" data-act="load-example"' + (busy ? ' disabled' : '') + '>' + ic('spark') + 'Muat contoh</button></div>' +
+      '<div class="field"><label class="label" for="f-brand">Nama brand</label><input id="f-brand" class="input' + cls('brand') + '" data-f="brand" maxlength="' + LIMITS.brand + '" value="' + esc(d.brand) + '" placeholder="mis. Root &amp; Bloom" autocomplete="off"' + ro + '>' + err('brand') + '</div>' +
+      '<div class="field"><label class="label" for="f-brief">Ringkasan brief <span class="opt">Opsional · tidak di-hash</span></label><textarea id="f-brief" class="textarea' + cls('brief') + '" data-f="brief" rows="2" maxlength="' + LIMITS.brief + '" placeholder="Brand apa, dan hasil seperti apa yang diinginkan?"' + ro + '>' + esc(d.brief) + '</textarea>' + err('brief') + '</div></div>' +
+    '<div class="fsec"><div class="fsec-h"><div><h3>Query pool</h3><p>Diajukan ke AI sebelum dan sesudah optimasi.</p></div></div>' +
+      '<div class="field"><label class="label" for="f-queries">Pertanyaan <span class="opt" id="q-count">' + qn + ' terdeteksi · 3–6 · satu per baris</span></label><textarea id="f-queries" class="textarea' + cls('queries') + '" data-f="queries" rows="6" placeholder="Apa rekomendasi skincare organik terbaik di Indonesia?"' + ro + '>' + esc(d.queries) + '</textarea>' + err('queries') + '</div>' +
+      '<div class="grid-2" style="margin-top:18px"><div class="field"><label class="label" for="f-target">Target <span class="opt" id="t-of">dari ' + (qn || 'N') + ' pertanyaan</span></label><input id="f-target" class="input num' + cls('target') + '" data-f="target" type="number" inputmode="numeric" min="1" max="' + Math.max(qn, 1) + '" value="' + esc(d.target) + '"' + ro + '>' + err('target') + '<div class="hint">Berapa pertanyaan yang harus menyebut brand agar dana cair.</div></div>' +
+      '<div class="field"><label class="label" for="f-budget">Budget</label><div class="affix"><input id="f-budget" class="input num' + cls('budget') + '" data-f="budget" inputmode="decimal" value="' + esc(d.budget) + '" autocomplete="off"' + ro + '><span>tBNB</span></div>' + err('budget') + '<div class="hint">Saldo ' + formatTBNB(balOf(a.addr)) + '.</div></div></div>' +
+      '<label class="check" style="margin-top:18px"><input type="checkbox" data-f="multi"' + (d.multi ? ' checked' : '') + (busy ? ' disabled' : '') + '><span><b>Wajib lolos di 2 gaya penjawab</b><span>Brand dihitung disebut hanya jika dua gaya jawaban Claude — ringkas dan naratif — sama-sama menyebutnya. Lebih ketat, dan pengukurannya dua kali lebih lama.</span></span></label></div>' +
+    '<div class="fsec"><div class="fsec-h"><div><h3>Batas ambil</h3><p>Kalau tidak ada freelancer yang mengambil sampai batas ini, Anda bisa menarik kembali seluruh budget.</p></div></div>' +
+      '<div class="field" style="max-width:320px"><label class="label" for="f-deadline">Tanggal &amp; jam</label><input id="f-deadline" class="input' + cls('deadline') + '" data-f="deadline" type="datetime-local" min="' + toLocalInput(Date.now() + H) + '" value="' + esc(d.deadline) + '"' + ro + '>' + err('deadline') + '<div class="hint">Minimal 1 jam dari sekarang.</div></div></div>' +
+    '<div class="fsec"><div class="fsec-h"><div><h3>Ringkasan biaya</h3></div></div>' +
+      '<dl class="sum" id="sum" style="margin:0">' + summaryHtml(d) + '</dl>' +
+      '<details class="canon"><summary>' + ic('hash', 'i-sm') + 'Lihat data yang dikunci di blockchain</summary><pre id="canon">' + esc(canonicalPool(d)) + '</pre></details></div>' +
+    '<div class="ffoot"><p>Oracle mulai mengukur baseline begitu transaksi terkonfirmasi — sekitar 10–20 detik.</p>' +
+      txButton('create', 'Buat kontrak & kunci dana', { act: 'submit-create', icon: 'lock' }) + '</div></div>';
+}
+function refreshCreate() {
+  const d = state.draft, v = validateDraft(d), qn = v.qs.length;
+  const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+  set('q-count', qn + ' terdeteksi · 3–6 · satu per baris');
+  set('t-of', 'dari ' + (qn || 'N') + ' pertanyaan');
+  set('sum', summaryHtml(d));
+  const c = document.getElementById('canon'); if (c) c.textContent = canonicalPool(d);
+  const t = document.getElementById('f-target'); if (t) t.max = Math.max(qn, 1);
+  if (!state.draftTried) return;
+  ['brand', 'brief', 'queries', 'target', 'budget', 'deadline'].forEach(f => {
+    set('err-' + f, v.e[f] ? ic('alert') + '<span>' + esc(v.e[f]) + '</span>' : '');
+    const el = document.getElementById('f-' + f); if (el) el.classList.toggle('err', !!v.e[f]);
+  });
+}
+
+/* ---------------- Detail kontrak ---------------- */
+const STEPS = [
+  { k: 'created', t: 'Kontrak dibuat & dana dikunci', s: 'Budget dikunci di kontrak', chain: true },
+  { k: 'baseline', t: 'Baseline diukur Oracle', s: 'Jawaban AI diukur sebelum optimasi' },
+  { k: 'accepted', t: 'Diambil freelancer', s: 'Freelancer mengunci bond 5%', chain: true },
+  { k: 'submitted', t: 'Hasil dikirim', s: 'Hash konten dicatat di blockchain', chain: true },
+  { k: 'structural', t: 'Cek struktural', s: '20% budget cair jika lolos', chain: true },
+  { k: 'verified', t: 'Verifikasi Oracle', s: 'Pertanyaan acak diukur ulang' },
+  { k: 'settled', t: 'Settlement', s: 'Dana akhir dibagikan', chain: true },
+];
+function stepDone(job, k) {
+  const n = job.queries.length;
+  switch (k) {
+    case 'created':    return 'Budget ' + formatTBNB(job.budget_wei) + ' dikunci';
+    case 'baseline':   return job.baseline_score != null ? job.baseline_score + ' dari ' + n + ' pertanyaan menyebut brand' : null;
+    case 'accepted':   return job.bond_wei ? 'Bond ' + formatTBNB(job.bond_wei) + ' dikunci · ' + shortAddr(job.freelancer_addr) : null;
+    case 'structural': return job.structural_released_wei !== '0' ? formatTBNB(job.structural_released_wei) + ' cair ke freelancer' : null;
+    case 'verified':   return job.verification_score != null ? job.verification_score + ' dari ' + job.verification_of + ' pertanyaan acak menyebut brand' : null;
+    case 'settled':    return !job.freelancer_addr ? 'Budget ditarik kembali oleh client' : job.status === 'ReleasedFull' ? 'Sisa budget dan bond cair ke freelancer' : 'Sisa budget dan bond kembali ke client';
+  }
+  return null;
+}
+function stepPos(job, ui) {
+  return { baseline_running: [1], baseline_failed: [1, 1], open: [2], in_progress: [3], submitted_pending: [4], structural_failed: [4, 1],
+    awaiting_verify: [5], verifying: [5], dispute: [6] }[ui] || [7];
+}
+function timelineCard(job, ui) {
+  const reclaimed = job.status === 'Refunded' && !job.freelancer_addr;
+  const pos = stepPos(job, ui), idx = pos[0], fail = !!pos[1];
+  const items = STEPS.map((st, i) => {
+    let c = i < idx ? 'done' : i === idx ? (fail ? 'fail' : 'active') : '';
+    let sub = (c === 'done' && stepDone(job, st.k)) || st.s;
+    if (reclaimed && i >= 2 && i <= 5) { c = 'skip'; sub = 'Dilewati'; }
+    if (reclaimed && i === 6) { sub = 'Budget ditarik kembali oleh client'; }
+    if (i === 1 && ui === 'baseline_running') sub = 'Oracle sedang bertanya ke AI…';
+    if (i === 1 && fail && ui === 'baseline_failed') sub = 'Gagal — bisa diukur ulang';
+    if (i === 2 && ui === 'open' && expired(job)) sub = 'Batas ambil lewat · client bisa menarik dana';
+    if (i === 3 && ui === 'in_progress' && job._rejected) sub = 'Kiriman sebelumnya ditolak · menunggu kiriman ulang';
+    if (i === 4 && ui === 'submitted_pending') sub = 'Oracle sedang mengonfirmasi ke kontrak…';
+    if (i === 4 && ui === 'structural_failed') sub = 'Konfirmasi gagal — gangguan sistem';
+    if (i === 5 && ui === 'verifying') sub = 'Oracle bertanya ulang ke AI…';
+    if (i === 5 && job._stuck) sub = 'Macet melewati batas waktu verifikasi';
+    if (i === 6 && ui === 'dispute') sub = 'Zona abu — menunggu putusan arbiter';
+    if (i === 6 && (ui === 'jury_release' || ui === 'jury_refund')) sub = 'Diputus oleh arbiter';
+    const s = job._steps[st.k];
+    let meta = '';
+    if (c === 'done' && s) meta = formatTime(s.ts) + (st.chain && s.tx ? '<br><button class="txl" data-act="noop-tx" title="Lihat transaksi">' + shortHash(s.tx) + ic('ext') + '</button>' : '<br><span>oleh Oracle</span>');
+    const dot = c === 'done' ? ic('check') : c === 'fail' ? ic('x') : '';
+    return '<li class="' + c + '"><span class="tl-dot">' + dot + '</span><div><div class="tl-t">' + st.t + '</div><div class="tl-s">' + sub + '</div></div><div class="tl-m">' + meta + '</div></li>';
+  }).join('');
+  return '<section class="card"><div class="card-h"><h3>Perjalanan kontrak</h3><span class="meta">' + Math.min(idx, 7) + ' dari 7 langkah</span></div><ol class="tl">' + items + '</ol></section>';
+}
+function hitChip(label, v) {
+  if (v === 's') return '<span class="hit s" title="Tidak terpilih di subset verifikasi">' + label + ' —</span>';
+  if (v === undefined) return '<span class="hit p" title="Belum diukur">' + label + '</span>';
+  return '<span class="hit ' + (v ? 'y' : 'n') + '" title="' + (v ? 'Menyebut brand' : 'Tidak menyebut brand') + '">' + label + ic(v ? 'check' : 'x') + '</span>';
+}
+function queryPoolCard(job) {
+  const b = hitsFor(job, 'baseline'), v = hitsFor(job, 'verification'), sub = job.verification_subset;
+  const rows = job.queries.map((q, i) => '<li><span class="qp-i">#' + (i + 1) + '</span><span class="qp-q">' + esc(q) + '</span><span class="qp-f">' +
+    hitChip('T0', b.get(i)) + (sub ? hitChip('T1', sub.includes(i) ? v.get(i) : 's') : '') + '</span></li>').join('');
+  return '<section class="card"><div class="card-h"><h3>Query pool</h3><span class="meta">' + job.queries.length + ' pertanyaan · target ' + job.target_count + '</span></div><ol class="qp">' + rows + '</ol>' +
+    '<div class="card-f"><div class="legend"><span><i class="lg lg-y"></i>Menyebut brand</span><span><i class="lg lg-n"></i>Tidak menyebut</span><span><i class="lg lg-p"></i>Belum diukur</span><span class="mono">T0</span>baseline<span class="mono">T1</span>verifikasi</div>' +
+    (job.multi_engine ? '<span>' + ic('info', 'i-xs') + ' Dihitung menyebut hanya jika <b>kedua</b> gaya penjawab menyebut.</span>' : '') + '</div></section>';
+}
+function delivBox(job) {
+  return '<div class="deliv"><div class="deliv-h"><span><b>Konten terkirim</b> · ' + formatTime(job.deliverable_submitted_at || job._steps.submitted.ts) + '</span><span class="mono" title="' + job.deliverable_hash + '">' + ic('hash', 'i-xs') + ' ' + shortHash(job.deliverable_hash) + '</span></div><div class="deliv-b">' + esc(job.deliverable_content) + '</div></div>';
+}
+function progressOf(job, phase) {
+  const total = phase === 'baseline' ? job.queries.length : (job.verification_subset || []).length;
+  const done = hitsFor(job, phase).size;
+  return { done: done, total: total, pct: total ? Math.round(done / total * 100) : 0 };
+}
+function workCard(job, ui, rel) {
+  const a = acct(), id = job.job_id;
+  const card = (title, body, icon) => '<section class="card"><div class="card-h"><h3>' + title + '</h3></div><div class="card-b stack">' + body + '</div></section>';
+  switch (ui) {
+    case 'baseline_running': {
+      const p = progressOf(job, 'baseline');
+      return card('Baseline', '<div class="note note-info"><span class="spin"></span><div><b>Oracle sedang mengukur baseline — ' + p.done + ' dari ' + p.total + ' pertanyaan.</b> Kontrak bisa diambil freelancer setelah baseline selesai.<div class="prog"><span style="width:' + p.pct + '%"></span></div></div></div>', 'radar');
+    }
+    case 'baseline_failed':
+      return card('Baseline', '<div class="note note-err">' + ic('alert') + '<div><b>Baseline gagal diukur.</b> Dana tetap aman di kontrak. Pengukuran bisa diulang — pertanyaan yang sudah terjawab tidak dibayar dua kali.<details class="tech"><summary>' + ic('right', 'i-xs') + 'Detail teknis</summary><div class="err-line">' + esc(job.last_error) + '</div></details></div></div>' +
+        '<div class="actions">' + postButton('retry-baseline:' + id, 'Ukur ulang baseline', { icon: 'refresh', busyLabel: 'Mengukur ulang…' }) + '</div>', 'radar');
+    case 'open': {
+      if (expired(job)) return card('Menunggu freelancer', '<div class="note note-plain">' + ic('clock') + '<div><b>Batas ambil lewat ' + relTime(job.accept_deadline) + '.</b> Kontrak ini tidak bisa diambil lagi.' + (rel === 'client' ? ' Anda bisa menarik kembali seluruh budget di bawah.' : '') + '</div></div>', 'users');
+      if (rel === 'client') return card('Menunggu freelancer', '<div class="who">' + ic('users') + '<span>Belum ada yang mengambil. Kontrak terbuka di pasar sampai <b style="color:var(--ink);font-weight:500">' + formatTime(job.accept_deadline) + '</b>.</span></div>', 'users');
+      const bond = job.bond_wei || (BigInt(job.budget_wei) * BOND_BPS / 10000n).toString();
+      return card('Ambil kontrak ini', '<dl class="sum" style="margin:0"><div class="sum-row"><dt>Bond yang harus dikunci</dt><dd class="num">' + money(bond) + '</dd></div><div class="sum-row"><dt>Cair saat lolos cek struktural</dt><dd class="num">' + money(BigInt(job.budget_wei) * STRUCT_BPS / 10000n) + '</dd></div><div class="sum-row"><dt>Sisanya kalau target tercapai</dt><dd class="num">' + money(BigInt(job.budget_wei) * 8000n / 10000n) + ' + bond</dd></div></dl>' +
+        '<p class="hint" style="margin:0">Bond dikembalikan penuh jika target tercapai, dan dialihkan ke client jika tidak.</p>' +
+        '<div class="actions">' + txButton('accept:' + id, 'Ambil kontrak · kunci bond', { icon: 'lock' }) + '</div>', 'briefcase');
+    }
+    case 'in_progress': {
+      if (rel !== 'freelancer') return card('Hasil kerja', '<div class="who">' + avatar(job.freelancer_addr, 24) + '<span>Freelancer <span class="mono" style="color:var(--ink)">' + shortAddr(job.freelancer_addr) + '</span> sedang mengerjakan. Hanya wallet ini yang bisa mengirim hasil.</span></div>' +
+        (job._rejected ? '<div class="note note-warn">' + ic('alert') + '<div><b>Kiriman sebelumnya ditolak cek struktural.</b><div class="err-line" style="color:var(--warn);border-color:var(--warn-line)">' + esc(job.last_error) + '</div></div></div>' : ''));
+      return card('Kirim hasil optimasi', delivForm(job));
+    }
+    case 'submitted_pending':
+      return card('Hasil kerja', delivBox(job) + '<div class="note note-info"><span class="spin"></span><div><b>Oracle sedang mengonfirmasi cek struktural ke kontrak.</b> 20% budget cair otomatis ke freelancer setelah ini selesai.</div></div>');
+    case 'structural_failed':
+      return card('Hasil kerja', delivBox(job) + '<div class="note note-err">' + ic('alert') + '<div><b>Konfirmasi struktural gagal karena gangguan sistem — bukan karena konten.</b> Konten sudah terkunci di hash on-chain, jadi tidak perlu dan tidak bisa diubah. Cukup coba lagi.<details class="tech"><summary>' + ic('right', 'i-xs') + 'Detail teknis</summary><div class="err-line">' + esc(job.last_error) + '</div></details></div></div>' +
+        '<div class="actions">' + postButton('retry-sync:' + id, 'Coba lagi', { icon: 'refresh', busyLabel: 'Mengonfirmasi ulang…' }) + '</div>');
+    case 'awaiting_verify':
+      return card('Hasil kerja', delivBox(job) +
+        '<div class="note note-ok">' + ic('check') + '<div><b>Lolos cek struktural.</b> ' + formatTBNB(job.structural_released_wei) + ' sudah cair ke freelancer.</div></div>' +
+        '<div><div class="actions">' + postButton('verify:' + id, 'Verifikasi sekarang', { icon: 'radar', busyLabel: 'Memulai verifikasi…' }) + '</div>' +
+        '<p class="hint">Oracle mengukur ulang ' + subsetSize(job.queries.length) + ' dari ' + job.queries.length + ' pertanyaan yang dipilih acak, dengan konten ini sebagai konteks. Sekitar 10–20 detik.</p></div>');
+    case 'verifying': {
+      const p = progressOf(job, 'verification');
+      return card('Hasil kerja', '<div class="note note-info"><span class="spin"></span><div><b>Oracle memverifikasi — ' + p.done + ' dari ' + p.total + ' pertanyaan terpilih.</b> Hasil dan keputusan settlement muncul otomatis.<div class="prog"><span style="width:' + p.pct + '%"></span></div></div></div>' + delivBox(job));
+    }
+    default:
+      return job.deliverable_content ? card('Hasil kerja', delivBox(job)) : '';
+  }
+}
+function delivForm(job) {
+  const id = job.job_id, st = state.deliv[id] || (state.deliv[id] = { text: '', check: null });
+  const busy = state.tx['submit:' + id] && TX_PHASE[state.tx['submit:' + id].phase];
+  const warn = job._rejected ? '<div class="note note-warn">' + ic('alert') + '<div><b>Kiriman sebelumnya ditolak.</b> Bond Anda tetap utuh — perbaiki lalu kirim ulang.<div class="err-line" style="color:var(--warn);border-color:var(--warn-line)">' + esc(job.last_error) + '</div></div></div>' : '';
+  return warn + '<div class="steps2" id="dsteps-' + id + '">' + delivSteps(st) + '</div>' +
+    '<div><div class="label"><label for="f-deliv-' + id + '">Konten yang sudah dioptimasi</label><span class="counter" id="dcount-' + id + '">' + st.text.length.toLocaleString('id-ID') + ' / ' + LIMITS.deliverable.toLocaleString('id-ID') + '</span></div>' +
+    '<textarea id="f-deliv-' + id + '" class="textarea" data-deliv="' + id + '" rows="7" maxlength="' + LIMITS.deliverable + '" placeholder="Tulis konten yang sudah dioptimasi. Sebutkan nama brand secara eksplisit."' + (busy ? ' readonly' : '') + '>' + esc(st.text) + '</textarea>' +
+    '<ul class="checks" id="dchk-' + id + '">' + delivChecks(job, st) + '</ul></div>' +
+    '<div id="dact-' + id + '">' + delivAction(job, st) + '</div>';
+}
+function delivSteps(st) {
+  const ok = st.check && st.check.pass;
+  return '<span class="' + (ok ? 'ok' : 'on') + '"><b>' + (ok ? '✓' : '1') + '</b>Periksa konten</span>' + ic('right', 'i-xs') + '<span class="' + (ok ? 'on' : '') + '"><b>2</b>Tanda tangani & kirim</span>';
+}
+function delivChecks(job, st) {
+  const t = st.text.trim(), c1 = t.length >= MIN_DELIVERABLE, c2 = textHitsBrand(t, job.brand);
+  return '<li class="' + (c1 ? 'ok' : '') + '">' + ic(c1 ? 'check' : 'dot') + 'Minimal ' + MIN_DELIVERABLE + ' karakter <span class="num">(' + t.length + ')</span></li>' +
+    '<li class="' + (c2 ? 'ok' : '') + '">' + ic(c2 ? 'check' : 'dot') + 'Menyebut "' + esc(job.brand) + '" secara eksplisit</li>';
+}
+function delivAction(job, st) {
+  const id = job.job_id;
+  if (st.check && st.check.pass) return '<div class="stack"><div class="note note-ok">' + ic('check') + '<div><b>Lolos cek struktural.</b> Konten tersimpan di server. Hash yang akan Anda tandatangani: <span class="mono" title="' + st.check.hash + '">' + shortHash(st.check.hash) + '</span></div></div>' +
+    '<div class="actions">' + txButton('submit:' + id, 'Tanda tangani & kirim', { icon: 'lock' }) + '</div></div>';
+  const fail = st.check && !st.check.pass ? '<div class="note note-err" style="margin-bottom:12px">' + ic('alert') + '<div><b>Belum lolos.</b> ' + esc(st.check.msg) + '</div></div>' : '';
+  return fail + '<div class="actions">' + postButton('check-deliv:' + id, 'Periksa konten', { variant: 'secondary', icon: 'shield', busyLabel: 'Memeriksa…' }) + '</div>' +
+    '<p class="hint">Pemeriksaan gratis dan dilakukan sebelum Anda membayar gas. Konten tetap tersimpan meski halaman ditutup.</p>';
+}
+function juryCard(job) {
+  const n = job.queries.length, id = job.job_id;
+  let body;
+  if (job.verification_score != null) {
+    const of = job.verification_of, T = job.target_count * of / n, lo = Math.max(T - 2, 0);
+    const pct = x => Math.max(0, Math.min(100, x / of * 100));
+    const w1 = pct(lo), w3 = 100 - pct(T), w2 = 100 - w1 - w3;
+    body = '<p style="font-size:13.5px;color:var(--ink-2)">Skor verifikasi <b>' + job.verification_score + ' dari ' + of + '</b> jatuh di antara batas refund dan batas cair, jadi keputusan diserahkan ke arbiter.</p>' +
+      '<div><div class="zone">' + (w1 > 0 ? '<span class="z-ref" style="width:' + w1 + '%"></span>' : '') + '<span class="z-grey" style="width:' + w2 + '%"></span><span class="z-rel" style="width:' + w3 + '%"></span>' +
+      '<span class="zone-mk" style="left:' + Math.min(pct(job.verification_score), 99.5) + '%"><b>Skor ' + job.verification_score + '</b></span></div>' +
+      '<div class="zone-l"><span><i class="lg lg-n"></i> Refund ≤ ' + fmtNum(lo) + '</span><span><i class="lg" style="background:#C9A233"></i> Zona abu</span><span><i class="lg lg-y"></i> Cair ≥ ' + fmtNum(T) + '</span></div></div>';
+  } else {
+    body = '<p style="font-size:13.5px;color:var(--ink-2)">Job ini dieskalasi karena verifikasi macet melewati batas waktu. Belum ada skor — arbiter memutuskan berdasarkan konten dan riwayatnya.</p>';
+  }
+  const act = isArbiter()
+    ? '<div class="actions">' + txButton('release:' + id, 'Cairkan ke freelancer', { variant: 'success', icon: 'check' }) + txButton('refund:' + id, 'Refund ke client', { variant: 'danger', icon: 'undo' }) + '</div><p class="hint">Keputusan bersifat final dan tercatat di blockchain.</p>'
+    : '<div class="note note-plain">' + ic('lock') + '<div>Hanya arbiter yang bisa memutus kontrak ini. Kontrak menolak transaksi dari alamat lain.<div class="who" style="margin-top:8px">' + avatar(ARBITER, 20) + '<a class="mono lnk" style="font-size:12.5px" href="' + SCAN + '/address/' + ARBITER + '" target="_blank" rel="noopener">' + shortAddr(ARBITER) + '</a><span style="font-size:12px">arbiter</span></div></div></div>';
+  return '<section class="card" style="border-color:var(--warn-line)"><div class="card-h" style="background:var(--warn-soft);border-color:var(--warn-line);border-radius:var(--r) var(--r) 0 0"><h3>Zona abu · perlu putusan arbiter</h3></div><div class="card-b stack">' + body + act + '</div></section>';
+}
+function recoveryCard(job, ui, rel) {
+  const id = job.job_id;
+  if (ui === 'open' && expired(job) && rel === 'client')
+    return '<section class="card"><div class="card-h"><h3>Tarik kembali dana</h3></div><div class="card-b stack"><p style="font-size:13.5px;color:var(--ink-2)">Tidak ada freelancer yang mengambil sampai batas <b>' + formatTime(job.accept_deadline) + '</b>. Seluruh budget bisa Anda tarik kembali.</p><div class="actions">' +
+      txButton('reclaim:' + id, 'Tarik kembali ' + formatTBNB(job.budget_wei), { variant: 'secondary', icon: 'undo' }) + '</div></div></section>';
+  if (job._stuck)
+    return '<section class="card"><div class="card-h"><h3>Verifikasi macet</h3><span class="meta">' + relTime(job._steps.structural.ts).replace(' lalu', '') + ' tanpa hasil</span></div><div class="card-b stack"><p style="font-size:13.5px;color:var(--ink-2)">Sudah lebih dari 7 hari tanpa hasil verifikasi. Siapa pun boleh meneruskannya ke arbiter agar dana tidak tertahan.</p><div class="actions">' +
+      txButton('escalate:' + id, 'Teruskan ke arbiter', { variant: 'secondary', icon: 'zap' }) + '</div></div></section>';
+  return '';
+}
+function fundsLabel(job, ui) {
+  if (job.status === 'Refunded' && !job.freelancer_addr) return ['Ditarik kembali oleh client', 'var(--faint)'];
+  return ({
+    baseline_running: ['Terkunci di kontrak', 'var(--chain)'], baseline_failed: ['Terkunci di kontrak', 'var(--chain)'], open: ['Terkunci di kontrak', 'var(--chain)'],
+    in_progress: ['Terkunci · bond ikut dikunci', 'var(--chain)'], submitted_pending: ['Terkunci · menunggu cek struktural', 'var(--signal)'], structural_failed: ['Terkunci · menunggu cek struktural', 'var(--signal)'],
+    awaiting_verify: ['20% cair · sisa terkunci', 'var(--signal)'], verifying: ['20% cair · sisa terkunci', 'var(--signal)'], dispute: ['Terkunci · menunggu arbiter', 'var(--warn)'],
+    settled_release: ['Cair penuh ke freelancer', 'var(--verify)'], jury_release: ['Cair penuh ke freelancer', 'var(--verify)'],
+    settled_refund: ['Kembali ke client', 'var(--danger)'], jury_refund: ['Kembali ke client', 'var(--danger)'],
+  })[ui];
+}
+function ledgerCard(job, ui) {
+  const settled = SETTLED.includes(job.status);
+  const left = settled ? 0n : BigInt(job.budget_wei) - BigInt(job.structural_released_wei) + (job.bond_wei ? BigInt(job.bond_wei) : 0n);
+  const f = fundsLabel(job, ui);
+  const r = (l, v, c) => '<div><dt>' + l + '</dt><dd class="num' + (c ? ' ' + c : '') + '">' + v + '</dd></div>';
+  return '<section class="card"><div class="card-h"><h3>Ledger escrow</h3><a class="txl" href="' + SCAN + '/address/' + CONTRACT + '" target="_blank" rel="noopener">' + shortAddr(CONTRACT) + ic('ext') + '</a></div><dl class="kv">' +
+    r('Budget dikunci', money(job.budget_wei)) +
+    r('Bond freelancer', job.bond_wei ? money(job.bond_wei) : '—', job.bond_wei ? '' : 'dim') +
+    r('Cair struktural · 20%', job.structural_released_wei !== '0' ? money(job.structural_released_wei) : '—', job.structural_released_wei !== '0' ? '' : 'dim') +
+    r('Masih di kontrak', money(left)) +
+    '<div><dt>Status dana</dt><dd class="sans"><span class="fund"><i style="background:' + f[1] + '"></i>' + f[0] + '</span></dd></div></dl></section>';
+}
+function radarCard(job) {
+  const id = job.job_id, hasV = !!job.verification_subset;
+  const phase = hasV ? (state.radarPhase[id] || 'verification') : 'baseline';
+  const n = job.queries.length;
+  let items;
+  if (phase === 'verification') {
+    const v = hitsFor(job, 'verification');
+    items = job.verification_subset.map(qi => ({ label: '#' + (qi + 1), hit: v.has(qi) ? v.get(qi) : null, title: job.queries[qi] }));
+  } else {
+    const b = hitsFor(job, 'baseline');
+    items = job.queries.map((q, qi) => ({ label: '#' + (qi + 1), hit: b.has(qi) ? b.get(qi) : null, title: q }));
+  }
+  const seg = hasV ? '<div class="seg" style="padding:2px"><button style="height:24px;padding:0 9px;font-size:12px" class="' + (phase === 'baseline' ? 'on' : '') + '" data-act="radar" data-arg="baseline:' + id + '">Baseline</button><button style="height:24px;padding:0 9px;font-size:12px" class="' + (phase === 'verification' ? 'on' : '') + '" data-act="radar" data-arg="verification:' + id + '">Verifikasi</button></div>' : '';
+  const bs = job.baseline_score, vs = job.verification_score;
+  const pct = (a, b) => b ? Math.round(a / b * 100) + '%' : '—';
+  const tgtPct = Math.round(job.target_count / n * 100);
+  const delta = vs != null && bs != null ? (vs / job.verification_of) - (bs / n) : null;
+  const score = '<div class="score"><div><b>' + (bs != null ? bs + '/' + n : '—') + '</b><span>Baseline · ' + (bs != null ? pct(bs, n) : 'belum') + '</span></div>' +
+    '<div><b class="' + (delta == null ? '' : delta > 0 ? 'up' : 'dn') + '">' + (vs != null ? vs + '/' + job.verification_of : '—') + '</b><span>Verifikasi · ' + (vs != null ? pct(vs, job.verification_of) : 'belum') + '</span></div>' +
+    '<div><b>' + tgtPct + '%</b><span>Target · ' + job.target_count + '/' + n + '</span></div></div>';
+  return '<section class="card"><div class="card-h"><h3>Radar sitasi AI</h3>' + seg + '</div><div class="radar-wrap">' + radarSvg(items) +
+    '<div class="legend" style="justify-content:center;margin-top:6px"><span><i class="lg lg-y"></i>Menyebut</span><span><i class="lg lg-n"></i>Tidak</span><span><i class="lg lg-p"></i>Menunggu</span></div></div>' + score + '</section>';
+}
+function radarSvg(items) {
+  const S = 260, c = S / 2, R = S * 0.37, n = Math.max(items.length, 1);
+  let sp = '', nd = '';
+  items.forEach((it, i) => {
+    const a = (-90 + i * 360 / n) * Math.PI / 180, x = c + R * Math.cos(a), y = c + R * Math.sin(a);
+    const x0 = c + 27 * Math.cos(a), y0 = c + 27 * Math.sin(a);
+    const st = it.hit === null ? 'p' : it.hit ? 'y' : 'n';
+    sp += '<line x1="' + x0.toFixed(1) + '" y1="' + y0.toFixed(1) + '" x2="' + x.toFixed(1) + '" y2="' + y.toFixed(1) + '" class="rd-sp rd-' + st + '"/>';
+    nd += '<g class="rd-nd rd-' + st + '"><title>' + esc(it.title) + '</title><circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="15"/><text x="' + x.toFixed(1) + '" y="' + (y + 3.5).toFixed(1) + '" text-anchor="middle">' + esc(it.label) + '</text></g>';
+  });
+  return '<svg class="radar" viewBox="0 0 ' + S + ' ' + S + '" role="img" aria-label="Radar sitasi brand per pertanyaan"><circle cx="' + c + '" cy="' + c + '" r="' + R + '" class="rd-ring"/><circle cx="' + c + '" cy="' + c + '" r="' + (R * .58).toFixed(1) + '" class="rd-ring rd-ring-2"/>' + sp +
+    '<circle cx="' + c + '" cy="' + c + '" r="23" class="rd-core"/><text x="' + c + '" y="' + (c + 2.8) + '" text-anchor="middle" class="rd-core-t">BRAND</text>' + nd + '</svg>';
+}
+function verdictOf(job) {
+  const v = hitsFor(job, 'verification');
+  return { v: 'GEOv1', jobId: job.job_id, brand: job.brand, seed: job.verification_seed, subset: job.verification_subset, hits: job.verification_subset.map(qi => v.get(qi) ? 1 : 0),
+    score: job.verification_score, of: job.verification_of, target: job.target_count, n: job.queries.length, multiEngine: job.multi_engine, decision: job.verification_decision };
+}
+/* lib/verdict.ts canonicalVerdict() — urutan field dikunci */
+const canonicalVerdict = v => [v.v, String(v.jobId), v.brand, v.seed, v.subset.join(','), v.hits.join(','), String(v.score), String(v.of), String(v.target), String(v.n), v.multiEngine ? '1' : '0', v.decision].join('\n');
+function verdictCard(job) {
+  if (!job.verification_decision) return '';
+  const v = verdictOf(job), lhs = v.score * v.n, rhs = v.target * v.of;
+  const floor = rhs - 2 * v.n;
+  const why = { release: lhs + ' ≥ ' + rhs + ' → cair ke freelancer', refund: lhs + ' ≤ ' + floor + ' → refund ke client', dispute: floor + ' < ' + lhs + ' < ' + rhs + ' → zona abu, ke arbiter' }[v.decision];
+  const formula = '<table class="frm"><tbody>' +
+    '<tr><td>Skor × jumlah pertanyaan</td><td>' + v.score + ' × ' + v.n + ' = ' + lhs + '</td></tr>' +
+    '<tr><td>Target × ukuran subset</td><td>' + v.target + ' × ' + v.of + ' = ' + rhs + '</td></tr>' +
+    '<tr><td>Batas refund (− 2 × ' + v.n + ')</td><td>' + rhs + ' − ' + (2 * v.n) + ' = ' + floor + '</td></tr>' +
+    '<tr class="res"><td>Keputusan</td><td>' + why + '</td></tr></tbody></table>';
+  const ck = (ok, t, s) => '<li><span class="ck ' + ok + '">' + ic(ok === 'y' ? 'check' : ok === 'n' ? 'x' : 'dot') + '</span><div>' + t + (s ? '<small>' + s + '</small>' : '') + '</div></li>';
+  return '<section class="card"><div class="card-h"><h3>Audit verdict</h3><span class="badge st-mint">' + ic('check') + 'Semua lolos</span></div>' +
+    '<ul class="audit">' + ck('y', 'Subset diturunkan ulang dari seed', 'Seed ' + shortHash(v.seed) + ' → #' + v.subset.map(i => i + 1).join(', #')) +
+      ck('y', 'Keputusan dihitung ulang', 'Aritmetika integer, tanpa pembulatan') +
+      ck('y', 'Hash verdict cocok dengan database') + ck('y', 'Hash verdict cocok dengan on-chain', shortHash(job.verdict_hash)) + '</ul>' +
+    '<div class="card-b" style="border-top:1px solid var(--line)">' + formula +
+    '<details class="canon"><summary>' + ic('hash', 'i-sm') + 'String kanonik (hitung keccak256 sendiri)</summary><pre>' + esc(canonicalVerdict(v)) + '</pre></details></div></section>';
+}
+function pageJob(id) {
+  const back = '<button class="back" data-act="back">' + ic('left', 'i-sm') + 'Kembali</button>';
+  const m = state.review.data;
+  if (m === 'error') return back + errorState();
+  if (m === 'loading') return back + '<div aria-busy="true"><i class="sk" style="width:120px;height:12px"></i><i class="sk" style="width:260px;height:26px;margin-top:10px"></i><div class="detail" style="margin-top:24px"><div class="card" style="height:380px"></div><div class="card" style="height:380px"></div></div></div>';
+  const job = id == null ? null : getJob(id);
+  if (!job || m === 'empty') return back + empty('alert', 'Kontrak tidak ditemukan', 'Tidak ada kontrak dengan nomor ini. Mungkin transaksinya belum tersinkron, atau nomornya salah.', '<a class="btn btn-secondary" href="#/market">Buka pasar</a>');
+  const ui = deriveUiStatus(job), rel = relation(job);
+  const relTag = rel ? '<span class="tag tag-chain" style="height:28px;padding:0 10px;font-size:12.5px">Anda: ' + (rel === 'client' ? 'Client' : 'Freelancer') + '</span>' : isArbiter() && ui === 'dispute' ? '<span class="tag" style="height:28px;padding:0 10px;font-size:12.5px">Anda: Arbiter</span>' : '';
+  const head = back + '<div class="dhead"><div class="dhead-l">' + monogram(job.brand, 56) + '<div><div class="eyebrow"><span>Kontrak #' + job.job_id + '</span><i class="dotsep"></i><span>dibuat ' + formatTime(job.created_at) + '</span><i class="dotsep"></i><span>client <span class="mono">' + shortAddr(job.client_addr) + '</span></span>' + (job.multi_engine ? '<i class="dotsep"></i><span>2 gaya penjawab</span>' : '') + '</div>' +
+    '<h1>' + esc(job.brand) + '</h1>' + (job.brief ? '<p class="page-sub">' + esc(job.brief) + '</p>' : '') + '</div></div><div class="dhead-r">' + relTag + badge(ui, true) + '</div></div>';
+  const tabs = '<div class="tabs" role="tablist"><button role="tab" class="' + (state.detailTab === 'overview' ? 'on' : '') + '" data-act="tab" data-arg="overview">Ringkasan</button><button role="tab" class="' + (state.detailTab === 'log' ? 'on' : '') + '" data-act="tab" data-arg="log">Log Oracle <span class="cnt num">' + job._runs.length + '</span></button></div>';
+  if (state.detailTab === 'log') return head + tabs + (job._runs.length ? runList(job._runs, false) : empty('radar', 'Belum ada panggilan AI', 'Log muncul begitu Oracle mulai mengukur baseline.'));
+  return head + tabs + '<div class="detail"><div class="stack">' + timelineCard(job, ui) + queryPoolCard(job) + workCard(job, ui, rel) + (ui === 'dispute' ? juryCard(job) : '') + recoveryCard(job, ui, rel) + '</div>' +
+    '<div class="stack detail-r">' + ledgerCard(job, ui) + radarCard(job) + verdictCard(job) + '</div></div>';
+}
+
+/* ---------------- Log Oracle ---------------- */
+function runList(runs, showBrand) {
+  const rows = runs.slice().sort((a, b) => b.created_at - a.created_at).slice(0, 150).map(r => {
+    const job = getJob(r.job_id);
+    return '<details><summary><span class="badge ' + (r.hit ? 'st-mint' : 'st-rose') + '">' + ic(r.hit ? 'check' : 'x') + (r.hit ? 'Disebut' : 'Tidak disebut') + '</span>' +
+      '<div class="log-m"><div class="log-q">' + esc(r.query) + '</div><div class="log-s">' + (showBrand && job ? '<a href="#/jobs/' + r.job_id + '">' + esc(job.brand) + '</a><i class="dotsep"></i>' : '') +
+      '<span>' + (r.phase === 'baseline' ? 'Baseline · T0' : 'Verifikasi · T1') + '</span><i class="dotsep"></i><span>' + (ENGINES[r.engine] || esc(r.engine)) + '</span><i class="dotsep"></i><span>Pertanyaan #' + (r.query_index + 1) + '</span></div></div>' +
+      '<span class="log-t">' + formatTime(r.created_at) + ic('down') + '</span></summary>' +
+      '<div class="log-b"><dl class="qa"><dt>Pertanyaan</dt><dd>' + esc(r.query) + '</dd><dt>Jawaban AI</dt><dd><div class="answer">' + (r.hit && job ? markBrand(esc(r.answer), job.brand) : esc(r.answer)) + '</div></dd></dl>' +
+      '<div class="meta-row"><span>Model <span class="mono">' + esc(r.model) + '</span></span><span>Latensi <span class="num">' + (r.latency_ms / 1000).toFixed(1) + ' dtk</span></span><span>Gaya <span class="mono">' + esc(r.engine) + '</span></span></div></div></details>';
+  }).join('');
+  return '<div class="card log">' + rows + '</div>';
+}
+function pageOracle() {
+  const head = pageHead('Log Oracle', 'Setiap pertanyaan yang diajukan Oracle ke AI, beserta jawaban lengkapnya.');
+  const m = state.review.data;
+  if (m === 'error') return head + errorState();
+  const all = m === 'empty' ? [] : state.jobs.flatMap(j => j._runs);
+  const F = [['all', 'Semua'], ['baseline', 'Baseline · T0'], ['verification', 'Verifikasi · T1']];
+  const seg = '<div class="seg-wrap"><div class="seg">' + F.map(p => '<button class="' + (state.logPhase === p[0] ? 'on' : '') + '" data-act="logphase" data-arg="' + p[0] + '">' + p[1] + '<span class="cnt num">' + all.filter(r => p[0] === 'all' || r.phase === p[0]).length + '</span></button>').join('') + '</div></div>';
+  if (m === 'loading') return head + '<div class="card" style="padding:16px" aria-busy="true">' + '<i class="sk" style="height:40px;margin-bottom:12px"></i>'.repeat(6) + '</div>';
+  const list = all.filter(r => state.logPhase === 'all' || r.phase === state.logPhase);
+  return head + seg + (list.length ? runList(list, true) : empty('radar', 'Belum ada log Oracle', 'Log muncul begitu Oracle mulai mengukur baseline atau verifikasi.'));
+}
+
+/* ---------------- Aktivitas ---------------- */
+const ACT_META = {
+  deposit: ['Kunci dana', 'in', 'ty-in'], bond_lock: ['Kunci bond', 'in', 'ty-in'], structural_release: ['Cair struktural', 'out', 'ty-out'],
+  structural_rejected: ['Struktural ditolak', 'x', 'ty-x'], dispute_raised: ['Dispute dibuka', 'scale', 'ty-back'],
+  final_release: ['Cair akhir', 'out', 'ty-out'], final_refund: ['Refund akhir', 'undo', 'ty-back'], jury_release: ['Juri: cair', 'out', 'ty-out'], jury_refund: ['Juri: refund', 'undo', 'ty-back'],
+  bond_return: ['Bond kembali', 'out', 'ty-out'], bond_slash: ['Bond di-slash', 'undo', 'ty-x'], reclaim: ['Tarik kembali', 'undo', 'ty-back'],
+};
+function addrLabel(a) {
+  if (same(a, CONTRACT)) return '<span class="k">Kontrak</span>';
+  if (same(a, ORACLE)) return '<span class="k">Oracle</span>';
+  if (same(a, ARBITER)) return '<span class="k">Arbiter</span>';
+  const me = acct();
+  if (me && same(a, me.addr)) return '<span class="k">Anda</span>';
+  return shortAddr(a);
+}
+function pageActivity() {
+  const head = pageHead('Aktivitas', 'Semua pergerakan dana — tercatat di blockchain dan bisa diperiksa siapa pun.');
+  const m = state.review.data;
+  if (m === 'error') return head + errorState();
+  if (m === 'loading') return head + '<div class="card" style="padding:16px" aria-busy="true">' + '<i class="sk" style="height:34px;margin-bottom:12px"></i>'.repeat(8) + '</div>';
+  const rows = m === 'empty' ? [] : state.activity.slice().sort((a, b) => b.block_number - a.block_number).slice(0, 150);
+  if (!rows.length) return head + empty('ledger', 'Belum ada aktivitas', 'Transaksi escrow tercatat di sini begitu ada kontrak yang dibuat.');
+  const body = rows.map(a => {
+    const meta = ACT_META[a.type] || [a.type, 'dot', ''], job = getJob(a.job_id);
+    return '<tr><td><span class="ty ' + meta[2] + '"><span class="ty-ic">' + ic(meta[1]) + '</span>' + meta[0] + '</span></td>' +
+      '<td class="t-r"><span class="amt num">' + (a.amount_wei != null ? money(a.amount_wei) : '<span class="faint">—</span>') + '</span></td>' +
+      '<td class="c-flow"><span class="flow">' + addrLabel(a.from_addr) + ic('arrow') + addrLabel(a.to_addr) + '</span></td>' +
+      '<td class="c-note">' + (job ? '<a class="job-l" href="#/jobs/' + job.job_id + '">' + esc(job.brand) + '</a> <span class="faint">#' + job.job_id + '</span>' : '—') + (a.note ? '<div class="faint" style="font-size:12px;white-space:normal;max-width:34ch">' + esc(a.note) + '</div>' : '') + '</td>' +
+      '<td><button class="txl" data-act="noop-tx">' + shortHash(a.tx_hash) + ic('ext') + '</button></td>' +
+      '<td class="c-time t-r faint" style="font-size:12.5px">' + relTime(a.created_at) + '</td></tr>';
+  }).join('');
+  return head + '<div class="card table-wrap"><table><thead><tr><th>Jenis</th><th class="t-r">Jumlah</th><th>Aliran</th><th>Kontrak</th><th>Transaksi</th><th class="t-r">Waktu</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+}
+
+/* ---------------- Sistem desain (untuk Fase 2) ---------------- */
+function pageSystem() {
+  const sw = (name, v, role) => '<div class="sw"><i style="background:' + v + '"></i><div><b>' + name + '</b><span class="mono">' + v + '</span><span>' + role + '</span></div></div>';
+  const cs = getComputedStyle(document.documentElement), tok = n => cs.getPropertyValue(n).trim();
+  const brand = [['--primary', 'tombol utama'], ['--accent', 'aksen merek'], ['--accent-soft', 'latar aksen'], ['--accent-ink', 'teks di atas aksen'], ['--mark', 'logo · inti radar']];
+  const pal = [['--paper', 'kanvas'], ['--card', 'permukaan'], ['--sunken', 'latar tenggelam'], ['--ink', 'teks utama'], ['--muted', 'teks sekunder'], ['--faint', 'label'], ['--line', 'hairline'], ['--line-2', 'border kontrol'],
+    ['--chain', 'aksi utama · on-chain'], ['--verify', 'berhasil · disebut'], ['--signal', 'sedang berjalan'], ['--warn', 'zona abu'], ['--danger', 'gagal · refund']];
+  const soft = [['--chain-soft', 'bg violet'], ['--verify-soft', 'bg mint'], ['--signal-soft', 'bg amber'], ['--warn-soft', 'bg warn'], ['--danger-soft', 'bg rose']];
+  const box = (t, inner) => '<section class="card" style="margin-bottom:16px"><div class="card-h"><h3>' + t + '</h3></div><div class="card-b">' + inner + '</div></section>';
+  const fakeTx = ph => { const k = '__sys_' + ph; state.tx[k] = { phase: ph, hash: fakeHash(ph) }; const h = txButton(k, 'Ambil kontrak', { icon: 'lock' }); delete state.tx[k]; return h; };
+  const savedWallet = state.review.wallet, savedNet = state.review.network;
+  state.review.wallet = 'connected'; state.review.network = 'ok';
+  const txs = '<div class="row-wrap" style="align-items:flex-start;gap:24px">' + txButton('__idle', 'Ambil kontrak', { icon: 'lock' }) + fakeTx('sign') + fakeTx('sent') + fakeTx('confirm') + fakeTx('sync') + fakeTx('rejected') + fakeTx('reverted') + '</div>';
+  state.review.network = 'wrong'; const netBtn = txButton('__n', 'x'); state.review.wallet = 'disconnected'; const conBtn = txButton('__c', 'x');
+  state.review.wallet = savedWallet; state.review.network = savedNet;
+  return pageHead('Sistem desain', 'Token dan komponen yang dikunci di Fase 1. Fase 2 memindahkan angka-angka ini apa adanya ke <span class="mono">@theme</span> di <span class="mono">app/globals.css</span>.') +
+    box('Warna merek — palet ' + PALETTES[state.review.palette].name, '<div class="sw-grid">' + brand.map(p => sw(p[0], tok(p[0]), p[1])).join('') + '</div>') +
+    box('Warna — peran', '<div class="sw-grid">' + pal.map(p => sw(p[0], tok(p[0]), p[1])).join('') + '</div><div class="sw-grid" style="margin-top:12px">' + soft.map(p => sw(p[0], tok(p[0]), p[1])).join('') + '</div>') +
+    box('Status — 13 dari <span class="mono">deriveUiStatus()</span>', '<div class="st-list">' + Object.keys(UI_STATUS_META).map(k => '<div>' + badge(k) + '<code>' + k + '</code></div>').join('') + '</div>' +
+      '<p class="hint" style="margin-top:14px">Tiap nada punya ikon sendiri (✓ ✕ ! ● jam) — bisa dibedakan tanpa warna.</p>') +
+    box('Tipografi', [['Judul halaman', '<span style="font-size:24px;font-weight:600;letter-spacing:-.024em">Pasar kontrak</span>', 'Inter 600 · 24/1.2 · −0.024em'], ['Judul kartu', '<span style="font-size:13.5px;font-weight:600">Ledger escrow</span>', 'Inter 600 · 13.5'], ['Isi', '<span>Oracle bertanya ulang ke AI dengan konten sebagai konteks.</span>', 'Inter 400 · 14/1.55'], ['Label', '<span style="font-size:12.5px;color:var(--muted)">Budget dikunci</span>', 'Inter 500 · 12.5 · muted'], ['Angka', '<span style="font-size:26px;font-weight:600;letter-spacing:-.03em" class="num">0.0142 <small style="font-size:14px;color:var(--muted);font-weight:500">tBNB</small></span>', 'tabular-nums'], ['Alamat · hash', '<span class="mono" style="font-size:13px">0x71C7…976F · 0x9f3a…a04c21</span>', 'JetBrains Mono · 12.5']].map(t => '<div class="type-row"><code>' + t[2] + '</code><div><div class="faint" style="font-size:11.5px;margin-bottom:2px">' + t[0] + '</div>' + t[1] + '</div></div>').join('')) +
+    box('Tombol', '<div class="row-wrap"><button class="btn btn-primary">' + ic('lock') + 'Primer</button><button class="btn btn-secondary">Sekunder</button><button class="btn btn-ghost">Ghost</button><button class="btn btn-success">' + ic('check') + 'Cairkan</button><button class="btn btn-danger">' + ic('undo') + 'Refund</button><button class="btn btn-primary" disabled>Nonaktif</button><button class="btn btn-primary btn-sm">Kecil</button><button class="btn btn-secondary btn-lg">Besar</button></div>') +
+    box('Transaksi — <span class="mono">&lt;TxButton&gt;</span> di tiap keadaan', txs + '<div class="row-wrap" style="margin-top:20px;gap:16px">' + netBtn + conBtn + '</div><p class="hint" style="margin-top:14px">Ditolak di wallet sengaja <b>tidak</b> merah — itu keputusan user yang sah, bukan kegagalan.</p>') +
+    box('Form', '<div class="grid-2"><div class="field"><label class="label">Normal</label><input class="input" value="Root & Bloom"></div><div class="field"><label class="label">Error</label><input class="input err" value="0,x"><div class="errm">' + ic('alert') + '<span>Masukkan jumlah tBNB yang valid.</span></div></div></div>') +
+    box('Callout', '<div class="stack"><div class="note note-info">' + ic('info') + '<div><b>Info.</b> Oracle sedang bekerja.</div></div><div class="note note-ok">' + ic('check') + '<div><b>Berhasil.</b> Lolos cek struktural.</div></div><div class="note note-warn">' + ic('alert') + '<div><b>Perhatian.</b> Kiriman sebelumnya ditolak.</div></div><div class="note note-err">' + ic('alert') + '<div><b>Gagal.</b> Konfirmasi struktural gagal.<div class="err-line">confirmStructural gagal: RPC tidak merespons</div></div></div></div>') +
+    box('Audit — pemeriksaan on-chain dilewati (<span class="mono">CHAIN_ENABLED=false</span>)', '<ul class="audit" style="margin:-16px"><li><span class="ck s">' + ic('dot') + '</span><div>Hash verdict cocok dengan on-chain<small>Dilewati — verifikasi on-chain sedang dimatikan di server. Bukan kegagalan.</small></div></li></ul>') +
+    box('Keadaan', '<div class="grid-2">' + empty('store', 'Keadaan kosong', 'Belum ada kontrak di filter ini.') + errorState() + '</div>');
+}
+
+/* ---------------- overlay ---------------- */
+const WALLETS = [
+  { id: 'metamask', name: 'MetaMask', bg: '#F6851B', g: 'M' },
+  { id: 'coinbase', name: 'Coinbase Wallet', bg: '#0052FF', g: 'C' },
+  { id: 'rabby', name: 'Rabby', bg: '#7084FF', g: 'R' },
+  { id: 'trust', name: 'Trust Wallet', bg: '#3375BB', g: 'T', missing: true },
+];
+function connectModal() {
+  const none = state.review.installed === 'none';
+  let body;
+  if (state.connecting) {
+    const w = WALLETS.find(x => x.id === state.connecting);
+    body = '<div class="connecting"><span class="wlogo" style="background:' + w.bg + '">' + w.g + '<span class="ring"></span></span><h4>Buka ' + w.name + '</h4><p>Setujui permintaan koneksi di jendela wallet. Tidak ada transaksi dan tidak ada biaya.</p><button class="btn btn-ghost btn-sm" style="margin-top:14px" data-act="cancel-connect">Batal</button></div>';
+  } else if (none) {
+    body = '<div class="empty" style="border:0;padding:12px 8px 4px"><div class="empty-ic">' + ic('wallet') + '</div><h3>Tidak ada wallet terdeteksi</h3><p>Pasang ekstensi wallet di browser ini, lalu muat ulang halaman.</p><a class="btn btn-primary" href="https://metamask.io/download/" target="_blank" rel="noopener">' + ic('ext') + 'Pasang MetaMask</a></div>';
+  } else {
+    body = WALLETS.map(w => '<button class="wopt' + (w.missing ? ' dim' : '') + '" data-act="pick-wallet" data-arg="' + w.id + '"' + (w.id === 'metamask' ? ' data-autofocus' : '') + '><span class="wlogo" style="background:' + w.bg + '">' + w.g + '</span><span><span class="wname">' + w.name + '</span><span class="wsub">' + (w.missing ? 'Belum terpasang' : 'Ekstensi browser') + '</span></span><span class="end">' + (w.missing ? 'Pasang ' + ic('ext', 'i-xs') : '<span class="tag tag-verify">Terdeteksi</span>') + '</span></button>').join('');
+  }
+  return '<div class="overlay" data-act="close-modal"><div class="modal" data-act="stop" role="dialog" aria-modal="true" aria-labelledby="cm-t"><div class="modal-h"><div><h3 id="cm-t">Hubungkan wallet</h3><p>Alamat wallet adalah identitas Anda. Tidak ada akun, tidak ada kata sandi.</p></div><button class="icon-btn" data-act="close-modal" aria-label="Tutup">' + ic('x') + '</button></div>' +
+    '<div class="modal-b">' + body + '</div><div class="modal-f">' + ic('shield') + '<span>GEO Escrow hanya meminta alamat. Setiap transaksi tetap harus Anda setujui sendiri di wallet.</span></div></div></div>';
+}
+function helpDrawer() {
+  return '<div class="drawer-bg" data-act="help"></div><aside class="drawer" role="dialog" aria-modal="true" aria-labelledby="hd-t"><div class="drawer-h"><h3 id="hd-t">Cara kerja GEO Escrow</h3><button class="icon-btn" data-act="help" aria-label="Tutup">' + ic('x') + '</button></div><div class="drawer-b">' +
+    '<ol class="hsteps">' +
+    '<li><b>Hubungkan wallet, bukan login</b>Alamat wallet adalah identitas Anda di seluruh aplikasi.</li>' +
+    '<li><b>Peran ditentukan otomatis</b>Kalau alamat Anda client sebuah kontrak, Anda melihat kontrol client. Kalau freelancer, kontrol freelancer. Satu wallet bisa berbeda peran di kontrak berbeda.</li>' +
+    '<li><b>Oracle mengukur baseline (T0)</b>Oracle di server bertanya ke AI untuk setiap pertanyaan dan mencatat apakah brand disebut — sebelum ada optimasi apa pun.</li>' +
+    '<li><b>Freelancer mengambil kontrak</b>dan mengunci bond 5% sebagai jaminan anti-gaming.</li>' +
+    '<li><b>Konten diperiksa, baru ditandatangani</b>Server memeriksa konten gratis. Setelah lolos, freelancer menandatangani hash-nya di blockchain dan 20% budget cair.</li>' +
+    '<li><b>Verifikasi (T1)</b>Subset pertanyaan diundi dari seed on-chain — siapa pun bisa mengulang undiannya. Oracle bertanya ulang dengan konten baru sebagai konteks.</li>' +
+    '<li><b>Settlement</b>Target tercapai → sisa budget + bond ke freelancer. Gagal jelas → refund + bond ke client. Zona abu → arbiter memutuskan.</li></ol>' +
+    '<div class="note note-plain" style="margin-bottom:16px">' + ic('info') + '<div><b>Soal "2 gaya penjawab".</b> Claude (ringkas) dan Claude (naratif) adalah dua gaya dari model yang sama — bukan dua mesin AI berbeda.</div></div>' +
+    '<div class="quote">"Trustless karena hasilnya diukur, bukan diklaim."</div></div></aside>';
+}
+function toastHtml() {
+  const t = state.toast;
+  return '<div class="toast ' + t.type + '" role="status">' + ic(t.type === 'ok' ? 'check' : t.type === 'err' ? 'alert' : 'info') + '<span>' + esc(t.msg) + '</span><button data-act="toast-close" aria-label="Tutup">' + ic('x') + '</button></div>';
+}
+function reviewPanel() {
+  const R = state.review;
+  const seg = (k, opts) => '<div class="seg">' + opts.map(o => '<button class="' + (R[k] === o[0] ? 'on' : '') + '" data-act="rv" data-arg="' + k + '=' + o[0] + '">' + o[1] + '</button>').join('') + '</div>';
+  if (!R.open) return '<button class="rv-btn" data-act="rv-toggle">' + ic('sliders') + 'Mode tinjau · rev 6<span class="pip"></span></button>';
+  return '<button class="rv-btn" data-act="rv-toggle">' + ic('x') + 'Tutup</button><div class="rv" role="dialog" aria-label="Mode tinjau mockup"><h4>Mode tinjau</h4><p>Hanya ada di mockup — untuk melihat tiap keadaan tanpa backend.</p>' +
+    '<div class="rv-l">Palet warna</div>' + seg('palette', Object.keys(PALETTES).map(k => [k, PALETTES[k].name])) + '<p class="rv-d">' + PALETTES[R.palette].desc + '</p>' +
+    '<div class="rv-l">Gaya</div>' + seg('style', [['premium', 'Premium'], ['minimal', 'Minimal']]) +
+    '<div class="rv-l">Wallet</div>' + seg('wallet', [['connected', 'Terhubung'], ['disconnected', 'Terputus']]) +
+    '<div class="rv-l">Akun aktif</div>' + seg('role', Object.keys(ROLES).map(k => [k, ROLES[k].label])) +
+    '<div class="rv-l">Jaringan</div>' + seg('network', [['ok', 'BNB Testnet'], ['wrong', 'Salah jaringan']]) +
+    '<div class="rv-l">Data dari API</div>' + seg('data', [['normal', 'Normal'], ['loading', 'Memuat'], ['empty', 'Kosong'], ['error', 'Error']]) +
+    '<div class="rv-l">Hasil transaksi</div>' + seg('tx', [['ok', 'Sukses'], ['rejected', 'Ditolak'], ['reverted', 'Revert']]) +
+    '<div class="rv-l">Wallet terpasang</div>' + seg('installed', [['yes', 'Ada'], ['none', 'Tidak ada']]) +
+    '<div class="rv-links"><button data-act="goto" data-arg="#/system">' + ic('palette') + 'Sistem desain</button><button data-act="reset-mock">' + ic('refresh') + 'Reset data</button></div></div>';
+}
+
+/* =====================================================================
+   AKSI
+   ===================================================================== */
+let toastTimer = null;
+function toast(type, msg) {
+  state.toast = { type: type, msg: msg };
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { state.toast = null; render(); }, 4800);
+}
+function runTx(key) {
+  const mode = state.review.tx;
+  const set = (phase, extra) => { state.tx[key] = Object.assign({}, state.tx[key], { phase: phase }, extra || {}); render(); };
+  set('sign');
+  setTimeout(() => {
+    if (mode === 'rejected') { set('rejected'); return; }
+    set('sent', { hash: fakeHash('tx' + key + Date.now()) });
+    setTimeout(() => {
+      set('confirm');
+      setTimeout(() => {
+        if (mode === 'reverted') { set('reverted'); toast('err', 'Transaksi ditolak kontrak (revert). Dana tidak berpindah.'); render(); return; }
+        set('sync');
+        setTimeout(() => { const h = state.tx[key].hash; delete state.tx[key]; txDone(key, h); render(); }, 650);
+      }, 1300);
+    }, 550);
+  }, 1300);
+}
+function settle(job, toF, by, ts) {
+  const remaining = BigInt(job.budget_wei) - BigInt(job.structural_released_wei), bond = job.bond_wei ? BigInt(job.bond_wei) : 0n;
+  job.status = toF ? 'ReleasedFull' : 'Refunded'; job.settled_by = by; job.job_state = 'idle';
+  job._steps.settled = { ts: ts, tx: fakeHash('settle' + job.job_id + ts) };
+  const to = toF ? job.freelancer_addr : job.client_addr;
+  pushAct(mkAct(job, by === 'arbiter' ? (toF ? 'jury_release' : 'jury_refund') : (toF ? 'final_release' : 'final_refund'), remaining, CONTRACT, to, toF ? 'Sisa budget cair' : 'Sisa budget kembali ke client', ts));
+  if (bond) pushAct(mkAct(job, toF ? 'bond_return' : 'bond_slash', bond, CONTRACT, to, toF ? 'Bond dikembalikan' : 'Bond di-slash ke client', ts + 1));
+  addBal(to, remaining + bond);
+}
+function txDone(key, hash) {
+  const parts = key.split(':'), name = parts[0], job = getJob(Number(parts[1])), a = acct(), now = Date.now();
+  if (name === 'create') {
+    const p = state.pending, id = Math.max.apply(null, state.jobs.map(j => j.job_id)) + 1;
+    const nj = buildJob({ id: id, brand: state.draft.brand.trim(), brief: state.draft.brief.trim(), cat: 'produk ' + state.draft.brand.trim(), usp: 'kualitasnya konsisten', q: p.qs, target: Number(state.draft.target), multi: state.draft.multi,
+      budget: amt(p.b), client: a.addr, status: 'Open', state: 'running_baseline', base: p.qs.map((_, i) => i === 0 ? 1 : 0), baseDone: 0 }, now, p.dl);
+    nj._steps.created.tx = hash;
+    state.jobs.push(nj);
+    pushAct(mkAct(nj, 'deposit', nj.budget_wei, a.addr, CONTRACT, 'Budget dikunci', now));
+    addBal(a.addr, -(p.b + GAS_WEI));
+    state.draft = defaultDraft(); state.draftTried = false; state.detailTab = 'overview';
+    location.hash = '#/jobs/' + id;
+    toast('ok', 'Kontrak #' + id + ' dibuat. Oracle mulai mengukur baseline.');
+    simulateRuns(nj, 'baseline', p.qs.map((_, i) => i), () => { nj.baseline_score = nj._baseHits.reduce((x, y) => x + y, 0); nj.baseline_of = nj.queries.length; nj.job_state = 'idle'; nj._steps.baseline = { ts: Date.now() }; toast('ok', 'Baseline "' + nj.brand + '" terukur: ' + nj.baseline_score + '/' + nj.baseline_of + ' menyebut brand.'); });
+    return;
+  }
+  if (!job) return;
+  if (name === 'accept') {
+    job.status = 'Accepted'; job.freelancer_addr = a.addr; job.bond_wei = (BigInt(job.budget_wei) * BOND_BPS / 10000n).toString();
+    job._steps.accepted = { ts: now, tx: hash };
+    pushAct(mkAct(job, 'bond_lock', job.bond_wei, a.addr, CONTRACT, 'Bond freelancer dikunci', now));
+    addBal(a.addr, -(BigInt(job.bond_wei) + GAS_WEI));
+    toast('ok', 'Kontrak #' + job.job_id + ' diambil. Bond ' + formatTBNB(job.bond_wei) + ' dikunci.');
+    if (location.hash !== '#/jobs/' + job.job_id) location.hash = '#/jobs/' + job.job_id;
+  } else if (name === 'submit') {
+    const st = state.deliv[job.job_id];
+    job.status = 'Submitted'; job.job_state = 'running_structural'; job._rejected = false; job.last_error = null;
+    job.deliverable_content = st.text.trim(); job.deliverable_hash = st.check.hash; job.deliverable_submitted_at = now;
+    job._steps.submitted = { ts: now, tx: hash };
+    addBal(a.addr, -GAS_WEI);
+    delete state.deliv[job.job_id];
+    toast('ok', 'Hash konten terkunci on-chain. Oracle mengonfirmasi cek struktural…');
+    setTimeout(() => confirmStructural(job), 2600);
+  } else if (name === 'release' || name === 'refund') {
+    settle(job, name === 'release', 'arbiter', now);
+    addBal(a.addr, -GAS_WEI);
+    toast('ok', name === 'release' ? 'Diputus: dana cair ke freelancer.' : 'Diputus: dana dikembalikan ke client.');
+  } else if (name === 'reclaim') {
+    job.status = 'Refunded'; job._steps.settled = { ts: now, tx: hash };
+    pushAct(mkAct(job, 'reclaim', job.budget_wei, CONTRACT, job.client_addr, 'Batas ambil lewat · ditarik client', now));
+    addBal(job.client_addr, BigInt(job.budget_wei) - GAS_WEI);
+    toast('ok', formatTBNB(job.budget_wei) + ' kembali ke wallet Anda.');
+  } else if (name === 'escalate') {
+    job.status = 'Disputed'; job._stuck = false;
+    pushAct(mkAct(job, 'dispute_raised', null, a.addr, CONTRACT, 'Dieskalasi: macet melewati verifyTimeout', now));
+    addBal(a.addr, -GAS_WEI);
+    toast('ok', 'Job dieskalasi ke arbiter.');
+  }
+}
+function confirmStructural(job) {
+  const now = Date.now();
+  job.status = 'Verifying'; job.job_state = 'idle';
+  job.structural_released_wei = (BigInt(job.budget_wei) * STRUCT_BPS / 10000n).toString();
+  job._steps.structural = { ts: now, tx: fakeHash('struct' + job.job_id + now) };
+  pushAct(mkAct(job, 'structural_release', job.structural_released_wei, CONTRACT, job.freelancer_addr, 'Lolos cek struktural', now));
+  addBal(job.freelancer_addr, job.structural_released_wei);
+  toast('ok', 'Lolos cek struktural — ' + formatTBNB(job.structural_released_wei) + ' cair ke freelancer.');
+  render();
+}
+/* simulasi Oracle: jawaban masuk satu per satu — di FE sungguhan ini polling (Fase 9) */
+function simulateRuns(job, phase, indices, onDone) {
+  let k = 0;
+  const step = () => {
+    if (k >= indices.length) { onDone(); render(); return; }
+    const qi = indices[k++];
+    const agg = phase === 'baseline' ? job._baseHits[qi] : job._verifHits[job.verification_subset.indexOf(qi)];
+    enginesOf(job).forEach(e => job._runs.push(makeRun(job, phase, qi, e, engineHit(job, qi, e, agg), Date.now())));
+    render();
+    setTimeout(step, 750);
+  };
+  setTimeout(step, 600);
+}
+function postDone(key) {
+  const parts = key.split(':'), name = parts[0], id = Number(parts[1]), job = getJob(id);
+  delete state.busy[key];
+  if (name === 'check-deliv') {
+    const st = state.deliv[id], t = st.text.trim();
+    // cermin lib/structural.ts checkStructural()
+    if (t.length < MIN_DELIVERABLE) st.check = { pass: false, msg: 'Konten terlalu pendek (minimal ' + MIN_DELIVERABLE + ' karakter, dikirim ' + t.length + ').' };
+    else if (!textHitsBrand(t, job.brand)) st.check = { pass: false, msg: 'Konten harus menyebut nama brand "' + job.brand + '" secara eksplisit.' };
+    else st.check = { pass: true, hash: fakeHash('deliv' + t) };
+    return;
+  }
+  if (name === 'verify') {
+    const n = job.queries.length, r = rng('seed' + id + job.job_state);
+    const idx = job.queries.map((_, i) => i).sort(() => r() - .5).slice(0, subsetSize(n)).sort((x, y) => x - y);
+    job.job_state = 'running_verify'; job.verification_seed = fakeHash('seed' + id + Date.now()); job.verification_subset = idx;
+    job._verifHits = idx.map((qi, k) => (job._baseHits[qi] || k % 4 !== 2) ? 1 : 0);
+    state.radarPhase[id] = 'verification';
+    simulateRuns(job, 'verification', idx, () => {
+      const now = Date.now();
+      job.verification_score = job._verifHits.reduce((x, y) => x + y, 0); job.verification_of = idx.length;
+      job.verification_decision = decide(job.verification_score, job.verification_of, job.target_count, n);
+      job.verdict_hash = fakeHash('verdict' + id + now); job._steps.verified = { ts: now };
+      if (job.verification_decision === 'dispute') { job.status = 'Disputed'; job.job_state = 'idle'; pushAct(mkAct(job, 'dispute_raised', null, ORACLE, CONTRACT, 'Skor di zona abu', now)); toast('info', 'Skor ' + job.verification_score + '/' + job.verification_of + ' di zona abu — diserahkan ke arbiter.'); }
+      else { settle(job, job.verification_decision === 'release', 'oracle', now + 2000); toast('ok', job.verification_decision === 'release' ? 'Target tercapai — dana cair otomatis ke freelancer.' : 'Target tidak tercapai — dana dikembalikan ke client.'); }
+    });
+    return;
+  }
+  if (name === 'retry-baseline') {
+    job.job_state = 'running_baseline'; job.last_error = null; job._baseHits = job.queries.map((_, i) => i === 1 ? 1 : 0);
+    simulateRuns(job, 'baseline', job.queries.map((_, i) => i), () => { job.baseline_score = job._baseHits.reduce((x, y) => x + y, 0); job.baseline_of = job.queries.length; job.job_state = 'idle'; job._steps.baseline = { ts: Date.now() }; toast('ok', 'Baseline terukur: ' + job.baseline_score + '/' + job.baseline_of + '.'); });
+    return;
+  }
+  if (name === 'retry-sync') { job.job_state = 'running_structural'; job.last_error = null; setTimeout(() => confirmStructural(job), 1800); }
+}
+const ACT = {
+  connect: () => { state.modal = 'connect'; state.menu = false; render(); },
+  'close-modal': () => { if (state.connecting) return; state.modal = null; render(); },
+  'cancel-connect': () => { state.connecting = null; render(); },
+  stop: () => {},
+  'pick-wallet': id => {
+    const w = WALLETS.find(x => x.id === id);
+    if (w.missing) { toast('info', 'Di FE sungguhan: membuka halaman pemasangan ' + w.name + '.'); render(); return; }
+    state.connecting = id; render();
+    setTimeout(() => {
+      if (state.connecting !== id) return;
+      state.connecting = null; state.modal = null; state.review.wallet = 'connected'; state.walletName = w.name;
+      toast('ok', 'Terhubung ke ' + w.name + ' sebagai ' + shortAddr(acct().addr) + '.'); render();
+    }, 1400);
+  },
+  disconnect: () => { state.review.wallet = 'disconnected'; state.menu = false; toast('info', 'Koneksi wallet diputus.'); render(); },
+  menu: () => { state.menu = !state.menu; render(); },
+  copy: t => { try { navigator.clipboard.writeText(t); } catch (e) {} toast('ok', 'Alamat disalin.'); render(); },
+  help: () => { state.help = !state.help; render(); },
+  'switch-net': () => { state.review.network = 'ok'; toast('ok', 'Pindah ke BNB Smart Chain Testnet.'); render(); },
+  tx: key => runTx(key),
+  post: key => { state.busy[key] = true; render(); setTimeout(() => { postDone(key); render(); }, 900); },
+  'submit-create': () => {
+    state.draftTried = true;
+    const v = validateDraft(state.draft);
+    if (Object.keys(v.e).length) { refreshCreate(); const f = document.querySelector('.input.err,.textarea.err'); if (f) f.focus(); return; }
+    state.pending = v; runTx('create');
+  },
+  'load-example': () => {
+    state.draft = Object.assign(state.draft, { brand: 'Senja Botanica', brief: 'Lilin aromaterapi dari bahan soy wax dan minyak atsiri lokal, dibuat di Ubud.', target: '3', budget: '0.003', multi: false,
+      queries: ['Lilin aromaterapi lokal yang bagus?', 'Rekomendasi lilin soy wax buatan Indonesia?', 'Hadiah lilin aromaterapi untuk teman?', 'Aromaterapi untuk membantu tidur, merek apa yang aman?', 'Brand home fragrance dari Bali yang layak dicoba?'].join('\n') });
+    render();
+  },
+  filter: v => { state.filter = v; render(); },
+  mine: v => { state.mineFilter = v; render(); },
+  logphase: v => { state.logPhase = v; render(); },
+  tab: v => { state.detailTab = v; render(); },
+  radar: arg => { const p = arg.split(':'); state.radarPhase[Number(p[1])] = p[0]; render(); },
+  back: () => { if (history.length > 1) history.back(); else location.hash = '#/market'; },
+  goto: h => { location.hash = h; },
+  'goto-dispute': () => { state.filter = 'dispute'; location.hash = '#/market'; },
+  'noop-tx': () => { toast('info', 'Hash contoh di mockup — di FE sungguhan membuka testnet.bscscan.com/tx/…'); render(); },
+  'toast-close': () => { state.toast = null; render(); },
+  'retry-load': () => { state.review.data = 'normal'; render(); },
+  'rv-toggle': () => { state.review.open = !state.review.open; render(); },
+  rv: arg => {
+    const p = arg.split('='); state.review[p[0]] = p[1];
+    if (p[0] === 'role' || p[0] === 'wallet') { state.menu = false; state.deliv = {}; }
+    if (p[0] === 'palette') { try { localStorage.setItem('geo-palette', p[1]); } catch (e) {} }
+    if (p[0] === 'style') { try { localStorage.setItem('geo-style', p[1]); } catch (e) {} }
+    render();
+  },
+  'reset-mock': () => { const open = state.review.open; seedAll(); state.review = Object.assign({}, REVIEW0, { open: open, palette: state.review.palette, style: state.review.style }); toast('info', 'Data mockup dikembalikan ke awal.'); render(); },
+};
+
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (state.menu && !e.target.closest('.acct-wrap')) { state.menu = false; if (!el) { render(); return; } }
+  if (!el) return;
+  const fn = ACT[el.dataset.act];
+  if (!fn) return;
+  if (el.dataset.act === 'stop') { e.stopPropagation(); return; }
+  e.preventDefault();
+  fn(el.dataset.arg, el, e);
+});
+document.addEventListener('input', e => {
+  const t = e.target;
+  if (t.dataset.f) { state.draft[t.dataset.f] = t.type === 'checkbox' ? t.checked : t.value; refreshCreate(); return; }
+  if (t.dataset.deliv) {
+    const id = Number(t.dataset.deliv), job = getJob(id), st = state.deliv[id];
+    st.text = t.value; st.check = null;      // konten berubah = hash lama tidak berlaku
+    const set = (k, h) => { const el = document.getElementById(k + id); if (el) el.innerHTML = h; };
+    set('dchk-', delivChecks(job, st)); set('dact-', delivAction(job, st)); set('dsteps-', delivSteps(st));
+    const c = document.getElementById('dcount-' + id); if (c) c.textContent = st.text.length.toLocaleString('id-ID') + ' / ' + LIMITS.deliverable.toLocaleString('id-ID');
+  }
+});
+document.addEventListener('change', e => { if (e.target.dataset.f === 'multi') { state.draft.multi = e.target.checked; refreshCreate(); } });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (state.menu) state.menu = false; else if (state.modal && !state.connecting) state.modal = null; else if (state.help) state.help = false; else if (state.review.open) state.review.open = false; else return;
+  render();
+});
+window.addEventListener('hashchange', () => { state.menu = false; state.detailTab = 'overview'; render(); window.scrollTo(0, 0); });
+
+/* tautan tinjau: #/jobs/8?as=arbiter · ?wallet=off · ?net=wrong · ?data=empty|loading|error · ?panel=1 */
+function applyReviewParams() {
+  const q = (location.hash.split('?')[1] || '');
+  new URLSearchParams(q).forEach((v, k) => {
+    if (k === 'as' && ROLES[v]) { state.review.role = v; state.review.wallet = 'connected'; }
+    if (k === 'wallet') state.review.wallet = v === 'off' ? 'disconnected' : 'connected';
+    if (k === 'net') state.review.network = v === 'wrong' ? 'wrong' : 'ok';
+    if (k === 'data' && ['normal', 'loading', 'empty', 'error'].includes(v)) state.review.data = v;
+    if (k === 'panel') state.review.open = v === '1';
+    if (k === 'palette' && PALETTES[v]) state.review.palette = v;
+    if (k === 'style' && (v === 'premium' || v === 'minimal')) state.review.style = v;
+    if (k === 'modal' && v === 'connect') state.modal = 'connect';
+    if (k === 'tab' && (v === 'log' || v === 'overview')) state.detailTab = v;
+  });
+}
+seedAll();
+state.review.palette = savedPalette() || state.review.palette;
+state.review.style = savedStyle() || state.review.style;
+applyReviewParams();
+render();
+</script>
+</body>
+</html>

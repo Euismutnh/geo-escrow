@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { parseAddress } from '@/lib/validate';
-import { ok, handler, ApiError } from '@/lib/http';
+import { ok, handler, internalError } from '@/lib/http';
 
 const DONE: string[] = ['ReleasedFull', 'Refunded'];
 
@@ -23,7 +23,7 @@ export const GET = handler(async (req: NextRequest) => {
     apply: (q: ReturnType<typeof baseQuery>) => ReturnType<typeof baseQuery>
   ): Promise<number> => {
     const { count: c, error } = await apply(baseQuery());
-    if (error) throw new ApiError('INTERNAL', error.message);
+    if (error) throw internalError('menghitung statistik', error);
     return c ?? 0;
   };
 

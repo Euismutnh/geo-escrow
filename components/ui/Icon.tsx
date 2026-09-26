@@ -26,7 +26,22 @@ const PATHS = {
   ext: (<><path d="M14 4h6v6M20 4l-8.5 8.5" /><path d="M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10" /></>),
   file: (<><path d="M14 3.5H7A2.5 2.5 0 0 0 4.5 6v12A2.5 2.5 0 0 0 7 20.5h10a2.5 2.5 0 0 0 2.5-2.5V9z" /><path d="M14 3.5V9h5.5M8.5 13h7M8.5 16.5h4.5" /></>),
   left: (<path d="M15 18l-6-6 6-6" />),
+  right: (<path d="M9 18l6-6-6-6" />),
+  down: (<path d="M6 9l6 6 6-6" />),
   arrow: (<path d="M5 12h14M13 6l6 6-6 6" />),
+  lock: (<><rect x="4.5" y="10.5" width="15" height="10" rx="2.2" /><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" /></>),
+  scale: (<><path d="M12 4v16M8 20h8M5 7h14" /><path d="M5 7l-3 6.5a3 3 0 0 0 6 0z" /><path d="M19 7l-3 6.5a3 3 0 0 0 6 0z" /></>),
+  briefcase: (<><rect x="3" y="7" width="18" height="13" rx="2.5" /><path d="M8.5 7V5.5A1.5 1.5 0 0 1 10 4h4a1.5 1.5 0 0 1 1.5 1.5V7M3 12.5h18" /></>),
+  in: (<path d="M12 4v11M7 10.5l5 5 5-5M5 20h14" />),
+  out: (<path d="M12 20V9M7 13.5l5-5 5 5M5 4h14" />),
+  undo: (<><path d="M9 14L4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" /></>),
+  refresh: (<><path d="M20 11.5A8 8 0 0 0 5.6 7M4 4v4h4" /><path d="M4 12.5A8 8 0 0 0 18.4 17M20 20v-4h-4" /></>),
+  hash: (<path d="M5 9h15M4 15h15M10.5 3.5l-2 17M15.5 3.5l-2 17" />),
+  spark: (<path d="M12 3.5l1.9 5.5 5.6 2-5.6 2-1.9 5.5-1.9-5.5-5.6-2 5.6-2z" />),
+  copy: (<><rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2" /><path d="M15.5 8.5V6A1.5 1.5 0 0 0 14 4.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5" /></>),
+  shield: (<><path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.3-7.5 9.5-4.3-1.2-7.5-4.9-7.5-9.5V6z" /><path d="M8.8 12l2.2 2.2 4.3-4.4" /></>),
+  logout: (<><path d="M14.5 4H18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3.5" /><path d="M10 16.5L5.5 12 10 7.5M5.5 12H15" /></>),
+  users: (<><circle cx="9" cy="8.5" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><path d="M16 5.3a3.5 3.5 0 0 1 0 6.4M21.5 20a6.5 6.5 0 0 0-4-6" /></>),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;

@@ -7,8 +7,12 @@ import { parseJobId } from '@/lib/validate';
 import { rateLimit } from '@/lib/rate-limit';
 import { ok, fail, handler } from '@/lib/http';
 
-// syncJob menembak RPC sekali + getJob sekali. Cepat, tapi jangan tanpa batas.
-export const maxDuration = 30;
+// syncJob sendiri cepat (beberapa panggilan RPC + DB). Tapi batas ini juga
+// berlaku untuk after() di bawah — confirmStructural mengirim tx dan
+// menunggu receipt sampai RECEIPT_TIMEOUT_MS (30 dtk), lalu sync lagi.
+// Dulu 30: pemutusan platform datang lebih dulu dari error kita, dan lock
+// `running_structural` tertinggal terpegang.
+export const maxDuration = 60;
 
 /**
  * POST /api/sync/:id — tarik ulang satu job dari blockchain.

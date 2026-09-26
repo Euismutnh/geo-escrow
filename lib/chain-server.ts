@@ -8,6 +8,7 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 import { bscTestnet } from 'viem/chains';
 import { env } from './env';
+import { ApiError } from './http';
 import { geoEscrowAbi, STATUS_BY_INDEX } from './abi';
 
 /**
@@ -34,7 +35,11 @@ export function escrowAddress(): Address {
   return env.escrowAddress as Address;
 }
 
-/** Sama persis dengan tuple yang dikembalikan `getJob()` — 11 field, berurutan. */
+/**
+ * 11 field `getJob()` + `submittedAt`. Dibaca dari getter publik `jobs()`
+ * yang memuat seluruh struct — `getJob()` tidak menyertakan `submittedAt`,
+ * padahal hanya itu patokan waktu yang dipakai `escalateStuckJob`.
+ */
 export interface OnChainJob {
   client: string;
   freelancer: string;
@@ -50,6 +55,8 @@ export interface OnChainJob {
   status: number;
   /** Unix DETIK, bukan nomor blok: kontrak membandingkannya dengan block.timestamp. */
   acceptDeadline: bigint;
+  /** Unix detik saat submitDeliverable. 0 = belum/di-reset rejectStructural. */
+  submittedAt: bigint;
 }
 
 /** Hasil satu transaksi oracle. */
@@ -119,14 +126,22 @@ export async function readJobFromChain(jobId: bigint): Promise<OnChainJob | null
   // sah berada di [0, total). Perbandingannya >= , bukan > .
   if (jobId < 0n || jobId >= total) return null;
 
-  const r = await publicClient().readContract({
+  // Getter mapping publik mengembalikan TUPLE (urutan field struct Job di
+  // GeoEscrow.sol), bukan objek bernama seperti getJob().
+  const [
+    client, freelancer, queryPoolHash, deliverableHash, verdictHash, verificationSeed,
+    budget, bond, structuralReleased, acceptDeadline, submittedAt, status,
+  ] = await publicClient().readContract({
     address: escrowAddress(),
     abi: geoEscrowAbi,
-    functionName: 'getJob',
+    functionName: 'jobs',
     args: [jobId],
   });
 
-  return r as unknown as OnChainJob;
+  return {
+    client, freelancer, queryPoolHash, deliverableHash, verdictHash, verificationSeed,
+    budget, bond, structuralReleased, status: Number(status), acceptDeadline, submittedAt,
+  };
 }
 
 /**
@@ -284,6 +299,18 @@ function assertOracleWallet(): Promise<void> {
  */
 let antrean: Promise<unknown> = Promise.resolve();
 
+/**
+ * Batas menunggu receipt transaksi Oracle.
+ *
+ * BSC Testnet ~0,45 detik per blok (diukur 23 Sep 2026); receipt normalnya
+ * datang dalam 1–3 detik. Dulu 90 detik — MELEBIHI maxDuration route
+ * (sync 30, verify 60), jadi yang terjadi saat jaringan lambat bukan error
+ * kita, melainkan proses dipotong platform dengan lock masih terpegang.
+ * 30 detik + kerja sebelumnya tetap di bawah maxDuration 60 route yang
+ * mengirim tx (sync, verify, indexer/poll).
+ */
+export const RECEIPT_TIMEOUT_MS = 30_000;
+
 function antre<T>(fn: () => Promise<T>): Promise<T> {
   const hasil = antrean.then(fn, fn);
   // Rantainya tidak boleh putus kalau satu transaksi gagal.
@@ -340,28 +367,47 @@ async function kirim(
       // cuma "execution reverted", yang tidak menunjuk ke mana pun.
       const job = await readJobFromChain(jobId).catch(() => null);
       const status = job ? namaStatus(Number(job.status)) : 'tidak terbaca';
-      throw new Error(
-        `${label}(job ${jobId}) ditolak kontrak. Status on-chain saat ini: ` +
-          `${status}. Penyebab: ${e instanceof Error ? e.message : String(e)}`
+      // Pesan viem memuat URL RPC LENGKAP (dengan kuncinya, kalau penyedia RPC
+      // menaruh kunci di URL) dan isi request —
+      // jangan disisipkan ke pesan yang bisa berakhir di last_error publik.
+      console.error(`[chain] ${label}(job ${jobId}) ditolak kontrak:`, e);
+      throw new ApiError(
+        'CHAIN_FAILED',
+        `${label}(job ${jobId}) ditolak kontrak. Status on-chain saat ini: ${status}.`,
+        { cause: e }
       );
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const hash = await walletClient().writeContract(request as any);
+    // Dicatat SEBELUM menunggu receipt: kalau proses dipotong di tengah
+    // penantian, hanya baris ini yang tersisa untuk menelusuri tx-nya.
+    console.log(`[chain] ${label}(job ${jobId}) terkirim: ${hash}`);
 
-    const receipt = await publicClient().waitForTransactionReceipt({
-      hash,
-      confirmations: 1,
-      // BSC Testnet ~0,45 detik per blok (diukur 23 Sep 2026, sampel
-      // 10.000 blok). 90 detik = ±200 blok; kalau belum masuk
-      // juga, jaringannya yang bermasalah. Tetap di bawah maxDuration
-      // route (yang 60-120 detik) supaya error kita yang muncul duluan,
-      // bukan pemutusan mendadak oleh platform.
-      timeout: 90_000,
-    });
+    let receipt;
+    try {
+      receipt = await publicClient().waitForTransactionReceipt({
+        hash,
+        confirmations: 1,
+        timeout: RECEIPT_TIMEOUT_MS,
+      });
+    } catch (e) {
+      console.error(`[chain] ${label}(job ${jobId}) receipt ${hash} tidak didapat:`, e);
+      // Tx mungkin tetap masuk blok. Aman diulang: percobaan berikutnya
+      // membaca status kontrak dulu (sudahLewat) sebelum mengirim apa pun.
+      throw new ApiError(
+        'CHAIN_FAILED',
+        `${label} terkirim (tx ${hash}) tapi belum terkonfirmasi dalam ${RECEIPT_TIMEOUT_MS / 1000} detik. ` +
+          `Percobaan berikutnya memeriksa status kontrak dulu — tidak ada pembayaran ganda.`,
+        { cause: e }
+      );
+    }
 
     if (receipt.status !== 'success') {
-      throw new Error(
+      // Pesan buatan kita, dan hash tx memang publik di chain — aman
+      // diteruskan ke last_error supaya UI bisa menautkannya ke BscScan.
+      throw new ApiError(
+        'CHAIN_FAILED',
         `${label} masuk blok tapi REVERT (tx ${hash}). Dana tidak berpindah.`
       );
     }
@@ -458,8 +504,21 @@ export async function settleOnChain(
 
   const { fn, tujuan } = SETTLE[decision];
 
-  if (await sudahLewat(jobId, tujuan)) {
+  const job = await readJobFromChain(jobId);
+  const status = job ? Number(job.status) : -1;
+  if ((tujuan as readonly number[]).includes(status)) {
     return { hash: HASH_SUDAH, alreadyDone: true };
+  }
+
+  // Oracle HANYA menyelesaikan job yang sedang Verifying. `_settle` di
+  // kontrak juga menerima Disputed — tanpa pagar ini, job yang sudah
+  // dieskalasi ke arbiter (escalateStuckJob, atau raiseDispute sebelumnya)
+  // bisa diputus Oracle dan arbiter dilangkahi.
+  if (status !== 3) {
+    throw new ApiError(
+      'WRONG_STATUS',
+      `${fn}(job ${jobId}) tidak dikirim: status on-chain ${job ? namaStatus(status) : 'tidak terbaca'}, bukan Verifying.`
+    );
   }
 
   return kirim(fn, jobId, () =>

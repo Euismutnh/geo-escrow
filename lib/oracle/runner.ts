@@ -1,6 +1,6 @@
 import { db } from '../db';
 import { getJob, acquireLock, releaseLock } from '../jobs-repo';
-import { ApiError } from '../http';
+import { ApiError, internalError, publicErrorMessage } from '../http';
 import { provider, enginesFor, textHitsBrand } from './index';
 import { hitPerQuery, type RunHit } from '../scoring';
 import type { Job } from '../types';
@@ -104,7 +104,7 @@ export async function runPhase(
     .eq('job_id', job.job_id)
     .eq('phase', opts.phase);
 
-  if (readErr) throw new ApiError('INTERNAL', readErr.message);
+  if (readErr) throw internalError('membaca hasil Oracle', readErr);
 
   const results = new Map<string, boolean>();
   // Daftar datar semua hasil — bahan untuk hitPerQuery() di akhir.
@@ -169,7 +169,7 @@ export async function runPhase(
         { onConflict: 'job_id,phase,query_index,engine', ignoreDuplicates: true }
       );
 
-    if (insErr) throw new ApiError('INTERNAL', insErr.message);
+    if (insErr) throw internalError('menyimpan hasil Oracle', insErr);
   });
 
   // Aturan gabungnya ("hit hanya kalau lolos di SEMUA engine") tinggal di
@@ -209,6 +209,20 @@ export interface BaselineResult {
  * sama-sama jalan. Yang kedua ditolak dengan ApiError('BUSY').
  */
 export async function runBaseline(jobId: number): Promise<BaselineResult> {
+  // Baseline = T0, SEBELUM ada yang mengerjakan. Di status lain ia tidak
+  // bermakna — dan berbahaya: lock di bawah menerima 'error', lalu sukses
+  // menulis job_state='idle'. Pada job Verifying yang settlement-nya gagal,
+  // 'error' itulah satu-satunya penanda "lanjutkan settlement" (lihat
+  // lib/flows/verify.ts); menimpanya jadi 'idle' membuat /verify menjawab
+  // "sudah diverifikasi" selamanya dan dana tertahan sampai eskalasi.
+  const preview = await getJob(jobId);
+  if (preview.status !== 'Open' || preview.verification_decision) {
+    throw new ApiError(
+      'WRONG_STATUS',
+      `Baseline hanya diukur saat kontrak masih terbuka (sekarang ${preview.status})`
+    );
+  }
+
   const locked = await acquireLock(
     jobId,
     ['idle', 'queued_baseline', 'error'],
@@ -246,14 +260,14 @@ export async function runBaseline(jobId: number): Promise<BaselineResult> {
       })
       .eq('job_id', jobId);
 
-    if (error) throw new ApiError('INTERNAL', error.message);
+    if (error) throw internalError('menyimpan hasil baseline', error);
 
     return { score, of: job.queries.length, fromCache: (after ?? 0) === (before ?? 0) };
   } catch (e) {
     // Dilepas ke 'error', BUKAN 'idle' -- supaya UI bisa membedakan
     // "gagal, silakan coba lagi" dari "belum pernah dijalankan", dan
     // menampilkan tombol coba-lagi (lihat deriveUiStatus -> baseline_failed).
-    await releaseLock(jobId, 'error', e instanceof Error ? e.message : String(e));
+    await releaseLock(jobId, 'error', publicErrorMessage(e, 'Kesalahan sistem — detail tercatat di log server'));
     throw e;
   }
 }

@@ -3,7 +3,7 @@ import { env } from '@/lib/env';
 import { runVerification } from '@/lib/flows/verify';
 import { parseJobId } from '@/lib/validate';
 import { rateLimit } from '@/lib/rate-limit';
-import { ok, fail, handler, ApiError } from '@/lib/http';
+import { ok, fail, handler, ApiError, publicErrorMessage } from '@/lib/http';
 
 // Verifikasi memanggil AI untuk subset pertanyaan, lalu mengirim transaksi.
 export const maxDuration = 60;
@@ -44,6 +44,6 @@ export const POST = handler(async (
     return ok(await runVerification(jobId));
   } catch (e) {
     if (e instanceof ApiError) return fail(e.code, e.message);
-    return fail('ORACLE_FAILED', e instanceof Error ? e.message : 'Verifikasi gagal');
+    return fail('ORACLE_FAILED', publicErrorMessage(e, 'Verifikasi gagal — detail tercatat di log server'));
   }
 });

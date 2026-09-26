@@ -501,6 +501,13 @@ GET {{baseUrl}}/jobs?limit=99999
 ### page negatif -> 200, diklem ke 1
 GET {{baseUrl}}/jobs?page=-5
 
+### page di luar jangkauan -> 200, jobs [] dan total tetap benar
+# (diperbaiki 2026-09-24; dulu 500 "Requested range not satisfiable" + pesan PostgREST bocor)
+GET {{baseUrl}}/jobs?page=99
+
+### page di luar jangkauan + filter -> total mengikuti filter, bukan total semua job
+GET {{baseUrl}}/jobs?filter=open&page=99
+
 ### jobId bukan angka -> 400 VALIDATION
 GET {{baseUrl}}/jobs/abc
 

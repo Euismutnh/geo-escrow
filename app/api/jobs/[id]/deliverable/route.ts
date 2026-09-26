@@ -7,7 +7,9 @@ import { checkStructural } from '@/lib/structural';
 import { parseJobId } from '@/lib/validate';
 import { LIMITS, requireText } from '@/lib/validate-input';
 import { rateLimit } from '@/lib/rate-limit';
-import { ok, fail, handler, ApiError } from '@/lib/http';
+import { readJobFromChain } from '@/lib/chain-server';
+import { contentAllowed, lockedDeliverableHash } from '@/lib/deliverable-lock';
+import { ok, fail, handler, internalError } from '@/lib/http';
 
 /**
  * POST /api/jobs/:id/deliverable
@@ -76,23 +78,39 @@ export const POST = handler(async (
 
   const hash = contentHash(text);
 
-  // Begitu transaksi on-chain terkirim, deliverable_hash terisi dan isi
-  // kontennya BEKU: apa pun yang dikirim setelah itu harus menghasilkan
-  // hash yang sama persis. Inilah yang menutup celah "orang lain menimpa
-  // konten setelah freelancer menandatanganinya".
-  if (job.deliverable_hash && job.deliverable_hash.toLowerCase() !== hash.toLowerCase()) {
+  // Konten BEKU begitu freelancer menandatangani submitDeliverable(hash):
+  // setelah itu hanya konten dengan hash PERSIS itu yang diterima — ini
+  // yang menutup celah "orang lain menimpa konten setelah ditandatangani".
+  //
+  // Jangkarnya hash ON-CHAIN, dibaca langsung dari kontrak (bukan kolom
+  // DB yang baru terisi setelah sync). Sebelum tanda tangan belum ada yang
+  // terkunci, jadi freelancer bebas merevisi drafnya. Lihat
+  // lib/deliverable-lock.ts untuk alasan lengkapnya.
+  const onChain = env.chainEnabled ? await readJobFromChain(BigInt(jobId)) : null;
+  const locked = lockedDeliverableHash({
+    chainEnabled: env.chainEnabled,
+    onChainHash: onChain?.deliverableHash,
+    dbHash: job.deliverable_hash,
+  });
+  if (!contentAllowed(locked, hash)) {
     return fail(
       'HASH_MISMATCH',
       'Konten tidak cocok dengan hash yang sudah dikunci on-chain'
     );
   }
 
+  // deliverable_hash di DB hanya CERMIN nilai on-chain (§2.1: nilai chain
+  // ditulis dari chain). Saat chain mati tidak ada cermin — perilaku lama.
   const { error } = await db()
     .from('jobs')
-    .update({ deliverable_content: text, deliverable_hash: hash })
+    .update(
+      env.chainEnabled
+        ? { deliverable_content: text, deliverable_hash: locked }
+        : { deliverable_content: text, deliverable_hash: hash }
+    )
     .eq('job_id', jobId);
 
-  if (error) throw new ApiError('INTERNAL', error.message);
+  if (error) throw internalError('menyimpan deliverable', error);
 
   // hash dikembalikan supaya FE memakainya persis di
   // submitDeliverable(jobId, deliverableHash).

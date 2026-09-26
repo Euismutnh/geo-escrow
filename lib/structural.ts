@@ -1,4 +1,7 @@
-import { textHitsBrand } from './oracle';
+// Langsung dari modul murni, BUKAN lewat './oracle' (yang mengekspornya
+// ulang tapi juga mengimpor env & SDK Anthropic): form deliverable di
+// browser memakai checkStructural() yang SAMA dengan server (Fase 7).
+import { textHitsBrand } from './brand-match';
 
 /**
  * Panjang minimum deliverable.

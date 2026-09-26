@@ -67,8 +67,10 @@
             "schema": {
               "type": "integer",
               "default": 1,
-              "minimum": 1
-            }
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "description": "Halaman di luar jangkauan membalas **200** dengan `jobs: []` dan `total` yang benar (sejak 2026-09-24; sebelumnya **500** \"Requested range not satisfiable\")."
           },
           {
             "name": "limit",
@@ -646,7 +648,7 @@
           "Oracle"
         ],
         "summary": "Kirim isi deliverable (SEBELUM tanda tangan tx)",
-        "description": "Urutannya sengaja dibalik dari rancangan awal: **simpan konten dulu,\nbaru tanda tangan `submitDeliverable()`**.\n\nKalau tab ditutup di antara keduanya pada urutan lama, job nyangkut\npermanen di status `Submitted` tanpa konten di database — Oracle tidak\npunya apa pun untuk diverifikasi.\n\nStructural check dijalankan di sini, jadi freelancer tahu kontennya lolos\n**sebelum** membayar gas.",
+        "description": "Urutannya sengaja dibalik dari rancangan awal: **simpan konten dulu,\nbaru tanda tangan `submitDeliverable()`**.\n\nKalau tab ditutup di antara keduanya pada urutan lama, job nyangkut\npermanen di status `Submitted` tanpa konten di database — Oracle tidak\npunya apa pun untuk diverifikasi.\n\nStructural check dijalankan di sini, jadi freelancer tahu kontennya lolos\n**sebelum** membayar gas.\n\n**Kapan konten terkunci:** begitu hash-nya ditandatangani di kontrak\n(`submitDeliverable`). Sebelum itu draf boleh direvisi berkali-kali.\nSesudahnya hanya konten dengan hash **on-chain** itu yang diterima —\nselain itu `HASH_MISMATCH`. Kolom `deliverable_hash` job adalah cermin\nnilai on-chain (null sebelum tanda tangan). Saat `CHAIN_ENABLED=false`,\nkiriman pertama yang mengunci (mode pengembangan).",
         "parameters": [
           {
             "name": "id",

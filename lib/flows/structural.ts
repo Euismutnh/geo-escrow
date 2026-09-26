@@ -1,5 +1,10 @@
+import { db } from '../db';
 import { getJob, acquireLock, releaseLock } from '../jobs-repo';
-import { confirmStructuralOnChain, rejectStructuralOnChain } from '../chain-server';
+import { syncSetelahTx } from '../indexer';
+import { publicErrorMessage } from '../http';
+import { confirmStructuralOnChain, readJobFromChain, rejectStructuralOnChain } from '../chain-server';
+import { contentAllowed, HASH_MISMATCH_ERROR, lockedDeliverableHash } from '../deliverable-lock';
+import { env } from '../env';
 import { contentHash } from '../hash';
 import { checkStructural } from '../structural';
 
@@ -32,8 +37,12 @@ export type ConfirmResult =
  * Konfirmasi structural ke smart contract -- inilah yang memicu
  * pencairan 20% dan memindahkan status ke `Verifying`.
  *
- * Dipanggil indexer saat event DeliverableSubmitted masuk, atau lewat
- * POST /api/sync/:id. IDEMPOTEN: aman dipanggil berkali-kali.
+ * Dipanggil lewat after() di POST /api/sync/:id (FE menyinkronkan setelah
+ * submitDeliverable), dan disapu GET /api/indexer/poll untuk job yang
+ * tertinggal di `Submitted`. IDEMPOTEN: aman dipanggil berkali-kali.
+ *
+ * Setelah setiap transaksi Oracle, status DB disegarkan dari chain
+ * (syncSetelahTx) — tidak ada pihak lain yang akan melakukannya.
  *
  * URUTANNYA: lock dulu, BARU periksa. Rancangan awal melakukan
  * sebaliknya -- dan pada cabang "hash tidak cocok" ia memanggil
@@ -70,9 +79,26 @@ export async function confirmStructural(jobId: number): Promise<ConfirmResult> {
     // Gerbang: isi di database harus BENAR-BENAR yang di-commit on-chain.
     // Tanpa ini, freelancer bisa menandatangani hash konten A lalu
     // menyodorkan konten B untuk diverifikasi Oracle.
+    //
+    // Hash dibaca dari KONTRAK, bukan kolom DB: dulu gerbang ini
+    // `if (job.deliverable_hash && …)` — dilewati diam-diam kalau kolom itu
+    // kosong. Kalau hash on-chain belum terbaca, jangan menebak: lewati dan
+    // biarkan sync berikutnya mencoba lagi.
     const computed = contentHash(content);
-    if (job.deliverable_hash && computed.toLowerCase() !== job.deliverable_hash.toLowerCase()) {
-      await releaseLock(jobId, 'error', 'Isi deliverable tidak cocok dengan hash on-chain');
+    const onChain = await readJobFromChain(BigInt(jobId));
+    const signed = lockedDeliverableHash({
+      chainEnabled: env.chainEnabled,
+      onChainHash: onChain?.deliverableHash,
+      dbHash: job.deliverable_hash,
+    });
+    if (signed === null) {
+      await releaseLock(jobId, 'idle');
+      return { ok: false, skipped: 'hash deliverable on-chain belum terbaca' };
+    }
+    if (!contentAllowed(signed, computed)) {
+      // 'error' bukan jalan buntu: acquireLock menerima ['idle','error'],
+      // jadi sync berikutnya mencoba lagi begitu konten yang benar dikirim.
+      await releaseLock(jobId, 'error', HASH_MISMATCH_ERROR);
       return { ok: false, skipped: 'hash tidak cocok' };
     }
 
@@ -109,6 +135,7 @@ export async function confirmStructural(jobId: number): Promise<ConfirmResult> {
       // mengirim konten baru. `last_error` tetap diisi supaya alasannya
       // terbaca di UI.
       await releaseLock(jobId, 'idle', alasan);
+      await syncSetelahTx(jobId, 'structural');
       return {
         ok: false,
         skipped: `structural gagal: ${structural.reason}`,
@@ -122,9 +149,56 @@ export async function confirmStructural(jobId: number): Promise<ConfirmResult> {
     const { hash: txHash, alreadyDone } = await confirmStructuralOnChain(BigInt(jobId));
 
     await releaseLock(jobId, 'idle');
+    // `alreadyDone` juga: artinya chain SUDAH di depan database.
+    await syncSetelahTx(jobId, 'structural');
     return { ok: true, txHash, alreadyDone };
   } catch (e) {
-    await releaseLock(jobId, 'error', e instanceof Error ? e.message : String(e));
+    await releaseLock(jobId, 'error', publicErrorMessage(e, 'Kesalahan sistem — detail tercatat di log server'));
+    // Tx bisa saja masuk blok walau receipt-nya tidak terbaca.
+    await syncSetelahTx(jobId, 'structural');
     throw e;
   }
+}
+
+/**
+ * Jaring pengaman untuk job yang tertinggal di `Submitted`.
+ *
+ * confirmStructural() normalnya dipicu after() di POST /api/sync/:id —
+ * yang hanya terjadi kalau tab freelancer masih terbuka setelah receipt.
+ * Tab ditutup lebih cepat, atau after() dipotong platform, berarti tidak
+ * ada lagi yang memicunya: job diam di `Submitted` sampai eskalasi 7 hari.
+ * Dipanggil GET /api/indexer/poll.
+ *
+ * Dibatasi jumlah DAN waktu: tiap konfirmasi bisa menunggu receipt sampai
+ * RECEIPT_TIMEOUT_MS, dan poll punya maxDuration 60 detik. Job berikutnya
+ * hanya dimulai kalau masih ada sisa waktu yang cukup.
+ */
+export async function sweepSubmitted(opts: { max: number; deadlineMs: number }): Promise<number> {
+  const { data, error } = await db()
+    .from('jobs')
+    .select('job_id')
+    .eq('status', 'Submitted')
+    .in('job_state', ['idle', 'error'])
+    .not('deliverable_content', 'is', null)
+    .order('job_state_at', { ascending: true })
+    .limit(opts.max);
+
+  if (error) {
+    console.error('[sweep] gagal membaca job Submitted:', error);
+    return 0;
+  }
+
+  let dicoba = 0;
+  for (const { job_id } of data ?? []) {
+    if (Date.now() > opts.deadlineMs) break;
+    dicoba++;
+    try {
+      const r = await confirmStructural(job_id);
+      if (!r.ok) console.log(`[sweep] job ${job_id} structural dilewati: ${r.skipped}`);
+    } catch (e) {
+      // confirmStructural sudah menyetel job_state='error' + last_error.
+      console.error(`[sweep] job ${job_id} structural gagal:`, e);
+    }
+  }
+  return dicoba;
 }

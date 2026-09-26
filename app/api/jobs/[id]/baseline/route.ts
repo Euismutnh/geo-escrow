@@ -3,7 +3,7 @@ import { runBaseline } from '@/lib/oracle/runner';
 import { getJob } from '@/lib/jobs-repo';
 import { parseJobId, verifyCronSecret } from '@/lib/validate';
 import { rateLimit } from '@/lib/rate-limit';
-import { ok, fail, handler, ApiError } from '@/lib/http';
+import { ok, fail, handler, ApiError, publicErrorMessage } from '@/lib/http';
 
 // Baseline memanggil AI beberapa kali. Dengan CONCURRENCY=3 di runner,
 // kasus terberat (6 pertanyaan x 2 engine) sekitar 20 detik -- tapi tetap
@@ -41,14 +41,19 @@ export const POST = handler(async (
       return fail('RATE_LIMITED', 'Tunggu sebentar sebelum mencoba lagi');
     }
 
+    // Tombol coba-lagi hanya untuk BASELINE yang gagal: status Open, belum
+    // ada skor, dan job_state 'error'. Dulu cukup job_state 'error' — yang
+    // juga penanda "settlement gagal, lanjutkan" di job Verifying, dan
+    // request tanpa login ini menghapusnya (runBaseline menulis 'idle').
     const job = await getJob(jobId);
+    if (job.status !== 'Open') {
+      return fail('WRONG_STATUS', 'Baseline hanya bisa diukur ulang saat kontrak masih terbuka');
+    }
+    if (job.baseline_score !== null) {
+      return fail('WRONG_STATUS', 'Baseline sudah pernah diukur');
+    }
     if (job.job_state !== 'error') {
-      return fail(
-        'WRONG_STATUS',
-        job.baseline_score === null
-          ? 'Baseline dijalankan otomatis saat job dibuat, tidak bisa dipicu manual'
-          : 'Baseline sudah pernah diukur'
-      );
+      return fail('WRONG_STATUS', 'Baseline dijalankan otomatis saat job dibuat, tidak bisa dipicu manual');
     }
   }
 
@@ -56,6 +61,6 @@ export const POST = handler(async (
     return ok(await runBaseline(jobId));
   } catch (e) {
     if (e instanceof ApiError) return fail(e.code, e.message);
-    return fail('ORACLE_FAILED', e instanceof Error ? e.message : 'Oracle gagal');
+    return fail('ORACLE_FAILED', publicErrorMessage(e, 'Oracle gagal — detail tercatat di log server'));
   }
 });

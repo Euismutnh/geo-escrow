@@ -1,7 +1,11 @@
 import { ApiError } from './http';
+import { LIMITS, QUERY_MAX, QUERY_MIN } from './job-input';
 
 /**
- * Batas panjang untuk teks yang datang dari user.
+ * Batas panjang untuk teks yang datang dari user — didefinisikan di
+ * lib/job-input.ts (modul murni) supaya form di browser memakai angka yang
+ * SAMA tanpa ikut menyeret lib/http.ts (next/server) ke bundle klien.
+ * Diekspor ulang di sini; pengimpor lama tidak perlu berubah.
  *
  * Bukan sekadar kerapian. Tiga alasan konkret:
  *
@@ -13,12 +17,7 @@ import { ApiError } from './http';
  *    punya anggaran 60 detik (maxDuration).
  * 3. PENYIMPANAN — kolom `text` di Postgres tidak punya batas bawaan.
  */
-export const LIMITS = {
-  brand: 100,
-  brief: 1_000,
-  query: 300,
-  deliverable: 20_000,
-} as const;
+export { LIMITS };
 
 /** Teks wajib, sudah di-trim, dengan batas panjang. */
 export function requireText(
@@ -126,8 +125,8 @@ export function requireQueryPool(
   if (!Array.isArray(rawQueries)) {
     throw new ApiError('VALIDATION', 'queries harus berupa array');
   }
-  if (rawQueries.length < 3 || rawQueries.length > 6) {
-    throw new ApiError('VALIDATION', 'Jumlah pertanyaan harus 3-6');
+  if (rawQueries.length < QUERY_MIN || rawQueries.length > QUERY_MAX) {
+    throw new ApiError('VALIDATION', `Jumlah pertanyaan harus ${QUERY_MIN}-${QUERY_MAX}`);
   }
 
   const queries = rawQueries.map((q, i) =>

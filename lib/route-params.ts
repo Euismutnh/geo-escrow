@@ -24,3 +24,20 @@ export function parseJobIdParam(raw: string | null | undefined): number | null {
   const n = Number(raw);
   return Number.isSafeInteger(n) ? n : null;
 }
+
+/**
+ * Nilai `searchParams` di Next.js 16 bisa string, ARRAY (?a=1&a=2), atau
+ * undefined. Ambil nilai pertama; jangan pernah menganggapnya selalu string.
+ */
+export function firstParam(v: string | string[] | undefined): string | undefined {
+  return Array.isArray(v) ? v[0] : v;
+}
+
+/** Batas halaman yang sama dengan server (parseIntParam max 10_000 di GET /api/jobs). */
+export const MAX_PAGE = 10_000;
+
+/** Nomor halaman dari URL: bilangan bulat 1..MAX_PAGE; selain itu halaman 1. */
+export function parsePageParam(raw: string | undefined): number {
+  const n = parseJobIdParam(raw);
+  return n === null || n < 1 ? 1 : Math.min(n, MAX_PAGE);
+}

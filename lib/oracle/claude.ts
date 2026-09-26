@@ -2,6 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../env';
 import { systemPrompt } from './prompt';
 import { OracleError, type OracleProvider, type OracleRequest, type OracleResult } from './types';
+import { CLAUDE_ENGINES } from './engines';
 
 const MODEL = 'claude-opus-5';
 
@@ -32,18 +33,10 @@ function getClient(): Anthropic {
 export const claudeProvider: OracleProvider = {
   id: 'claude',
 
-  // CATATAN KEJUJURAN: dua entri di bawah adalah dua PERSONA dari model
-  // yang SAMA, bukan dua mesin AI berbeda. Sejak Gemini dibatalkan
-  // (keputusan tim 2026-09-13), Claude adalah satu-satunya provider --
-  // jadi multi_engine TIDAK AKAN PERNAH berarti dua mesin AI.
-  //
-  // Nama engine sengaja TIDAK ditulis "Mesin A/B": nilai ini tampil di
-  // halaman Log Oracle, dan label "Mesin" akan membuat UI menyuarakan
-  // klaim yang tidak bisa kita pertanggungjawabkan di depan juri.
-  engines: [
-    { id: 'claude-ringkas', name: 'Claude (ringkas)', note: 'gaya ringkas & to-the-point' },
-    { id: 'claude-naratif', name: 'Claude (naratif)', note: 'gaya naratif dengan sedikit konteks tambahan' },
-  ],
+  // Dua PERSONA dari model yang sama, bukan dua mesin AI — lihat catatan
+  // kejujuran di engines.ts, tempat definisinya sekarang tinggal (modul
+  // murni, supaya frontend bisa membaca labelnya tanpa SDK ini).
+  engines: [...CLAUDE_ENGINES],
 
   async ask(req: OracleRequest): Promise<OracleResult> {
     const t0 = Date.now();
@@ -103,5 +96,8 @@ function toOracleError(e: unknown): OracleError {
   if (e instanceof Anthropic.APIError) {
     return new OracleError(`Anthropic error ${e.status}`, (e.status ?? 0) >= 500);
   }
-  return new OracleError(e instanceof Error ? e.message : 'Oracle gagal', false);
+  // Error tak dikenal: pesan aslinya tidak diteruskan (OracleError dianggap
+  // aman untuk publik oleh publicErrorMessage). Aslinya ke log server.
+  console.error('[oracle] error tak dikenal dari Anthropic SDK:', e);
+  return new OracleError('Kesalahan tak terduga saat menghubungi AI', false);
 }

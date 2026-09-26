@@ -6,6 +6,7 @@
  */
 
 import { NextResponse } from 'next/server';
+import { OracleError } from './oracle/types';
 
 export type ErrorCode =
   | 'VALIDATION'
@@ -51,11 +52,43 @@ export function fail(code: ErrorCode, error: string): NextResponse {
 export class ApiError extends Error {
   constructor(
     public readonly code: ErrorCode,
-    message: string
+    message: string,
+    /** Error asli (Supabase, viem, SDK) — HANYA untuk log server, tidak pernah dikirim ke klien. */
+    options?: { cause?: unknown }
   ) {
-    super(message);
+    super(message, options);
     this.name = 'ApiError';
   }
+}
+
+/**
+ * Error dari infrastruktur (Supabase, viem, SDK) -> ApiError INTERNAL
+ * dengan pesan UMUM. Error aslinya dicatat lengkap di log server.
+ *
+ * Jangan pernah `new ApiError('INTERNAL', error.message)`: pesan mentah
+ * PostgREST membocorkan nama kolom & struktur tabel, dan pesan viem memuat
+ * URL RPC LENGKAP dan isi request (diuji 2026-09-24) — termasuk kuncinya
+ * begitu RPC memakai penyedia berbayar yang menaruh kunci di URL.
+ * scripts/check-security.ts menolak pola itu.
+ *
+ *   if (error) throw internalError('memuat daftar job', error);
+ */
+export function internalError(context: string, cause: unknown): ApiError {
+  console.error(`[internal] ${context}:`, cause);
+  return new ApiError('INTERNAL', `Gagal ${context}`, { cause });
+}
+
+/**
+ * Pesan yang AMAN untuk publik dari error apa pun — untuk respons API dan
+ * untuk kolom `last_error` (yang terbaca siapa pun lewat GET /api/jobs/:id).
+ *
+ * Hanya pesan yang KITA tulis yang diteruskan: ApiError dan OracleError.
+ * Selain itu diganti `fallback`, dan aslinya dicatat di log server.
+ */
+export function publicErrorMessage(e: unknown, fallback: string): string {
+  if (e instanceof ApiError || e instanceof OracleError) return e.message;
+  console.error('[internal] pesan disembunyikan dari publik:', e);
+  return fallback;
 }
 
 /**

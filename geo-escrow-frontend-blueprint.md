@@ -783,6 +783,67 @@ npm run build        # jalankan SEKALI di fase ini, bukan tiap perubahan
 
 # Fase 3 — Halaman baca-saja
 
+> **Status: selesai 2026-09-24**, termasuk `npm run build`.
+> Ringkasan, Pasar, Log Oracle, Aktivitas membaca data sungguhan lewat react-query;
+> Kontrak saya menampilkan ajakan hubungkan wallet (daftarnya butuh alamat — Fase 5).
+>
+> | Pemeriksaan | Hasil |
+> |---|---|
+> | Uji murni + oracle + input | **274** (167 + 47 + 60), semua lolos |
+> | Keamanan · tipe · lint | 22/22 · bersih · bersih |
+> | 8 halaman di Chrome sungguhan | **0 error konsol** (penangkap dibuktikan bekerja dengan error sengaja) |
+> | Hitungan tab Pasar vs data | 8 · 4 · 2 · 1 · 1 — cocok dengan `MARKET_FILTERS` |
+> | Sorotan brand FE vs `run.hit` server | **35/35** baris konsisten |
+> | Kode server di bundle klien | tidak ada (SDK Anthropic, kunci, `lib/db`, `lib/indexer`) |
+> | `openapi.json` | identik — tidak ada endpoint yang berubah |
+>
+> **Keputusan yang diambil di fase ini:**
+>
+> 1. **"Terkunci di kontrak" dihitung dari ledger aktivitas** (`lib/ledger.ts`), bukan dari
+>    tabel jobs. Diuji per job terhadap data dev: setiap job yang tercatat cocok sampai ke wei.
+>    Ledger memberi 0,121 tBNB; tabel jobs 0,161 — selisihnya job #910/#911 yang dibuat saat
+>    chain mati dan **tidak ada di blockchain**. Angka tidak ditampilkan (—) kalau ledger
+>    terpotong di 300 baris atau ada tipe tak dikenal: angka salah lebih buruk dari tanda —.
+> 2. **Pagar anti-penyimpangan:** `check-pure.ts` membaca union `ActivityType` langsung dari
+>    `lib/indexer.ts` dan gagal kalau ada tipe yang tidak terklasifikasi masuk/keluar/netral.
+> 3. **Dua ekstraksi murni lagi dari backend** (perilaku identik, impor lama tetap jalan):
+>    `lib/brand-match.ts` (`textHitsBrand` + `splitByBrand`, satu pembuat pola) dan
+>    `lib/oracle/engines.ts` (label engine). Keduanya sebelumnya tinggal di modul yang
+>    mengimpor `@anthropic-ai/sdk`. Mockup Fase 1 ternyata mewarisi bug lama `\b` di dua
+>    sisi — ekstraksi ini mencegahnya terulang di FE.
+> 4. **`useNow()`** (`lib/use-now.ts`, `useSyncExternalStore`) menggantikan `Date.now()` di
+>    render — lint `react-hooks/purity` menangkapnya, dan di server nilainya berbeda dengan
+>    browser (hydration mismatch). `null` di server & saat hydration.
+> 5. **`keepPreviousData` dibuang** dari daftar job: di Pasar itu menampilkan kartu tab lama
+>    sesaat di bawah label tab baru.
+> 6. **Label engine dari data** (`engineLabel()`): dev memakai `mock-a` → "Mock A",
+>    bukan nama Claude yang dikodekan keras.
+>
+> **Bug yang ditemukan & diperbaiki:** `formatTime()` mencetak teks "Invalid Date" untuk
+> tanggal rusak (`new Date('x')` tidak melempar, jadi `try/catch`-nya tak pernah terpicu);
+> kolom angka tabel Aktivitas rata kiri (spesifisitas CSS); kolom Log Oracle tidak sejajar;
+> regex uji rusak oleh heredoc Git Bash (`[\s\S]` jadi `[sS]`) — persis peringatan handover §5.
+>
+> **Bug backend ditemukan & diperbaiki (disetujui — §D.1 A20):** `GET /api/jobs?page=99`
+> dulu membalas **500** `"Requested range not satisfiable"`. Diukur terhadap Supabase: offset
+> yang TEPAT sama dengan jumlah baris masih sukses (206); hanya yang melewatinya gagal
+> (`PGRST103`, tanpa `count`). Sekarang 200 dengan daftar kosong dan total yang benar.
+>
+> **Kebocoran pesan error mentah (§D.1 A21):** 22 lokasi meneruskan pesan asli Supabase/viem/SDK
+> ke respons atau ke `last_error`. Diganti `internalError()` / `publicErrorMessage()`; dijaga
+> guard statis di `check:security`.
+>
+> **Dicatat, bukan bug:** `/api/activity` tidak punya `?page=` (Ringkasan §1.7 keliru);
+> job dev #2 "Mengukur baseline…" padahal `idle` — artefak seed, tidak bisa terjadi di
+> produksi (job selalu mulai `queued_baseline`, gagal → `error`); sisi kontrak di kolom
+> Aliran tampil "—" karena seed menulis `null` — indexer sungguhan selalu mengisinya.
+>
+> **`npm run build` lolos** (setelah dev server dihentikan). RAM bebas terendah 282 MB —
+> VS Code (~1,1 GB) dan Chrome (~630 MB) memakan sisanya; tutup keduanya sebelum build Fase 5.
+> `/market` dan `/oracle-log` kini dinamis (membaca `searchParams`); 4 halaman lain tetap
+> prerender statis. Bundle klien produksi (16 berkas, 963 KB) dipindai: **0** jejak
+> `anthropic`, kunci, `service_role`, atau URL Supabase.
+
 **Tujuan.** Empat halaman list hidup dengan data sungguhan, **sebelum** wallet
 masuk ke gambar.
 
@@ -836,6 +897,35 @@ Invoke-RestMethod -Method POST http://localhost:3000/api/dev/seed
 
 # Fase 4 — Halaman detail (baca-saja)
 
+> **Status: selesai 2026-09-24.** `/jobs/[id]` → `components/job/` (JobDetailView, DetailCards,
+> RadarCard, VerdictCard) + logika murni `lib/job-view.ts` (diuji 83 kasus di `check-pure`).
+>
+> **Menyimpang dari rencana (dengan alasan):**
+> - Tab Log Oracle memakai `runs` dari `?include=runs,activity`, **bukan** request ke
+>   `/api/jobs/:id/oracle-log` — keduanya memanggil `getRuns()` yang sama, request kedua mubazir.
+> - Audit verdict **dihitung ulang di browser** (subset dari seed, hit vs log AI, keputusan,
+>   keccak256), server hanya dimintai hash on-chain. "Server bilang lolos" bukan bukti; hitung
+>   sendiri adalah bukti. Kalau hasil browser ≠ `audit.allChecksPassed`, kartu menyebutnya.
+>   Konsekuensi: `viem` (keccak256) masuk bundle klien — akan masuk juga lewat wagmi di Fase 5.
+> - "Masih di kontrak" dari `ledgerBalance(activity)`, bukan kolom `jobs` (keputusan Fase 3).
+>   Tanpa event on-chain → "—" + penjelasan, bukan angka tebakan.
+> - Kartu "Ambil kontrak" tanpa angka bond (§A10: `requiredBond()` baru terbaca di Fase 7).
+> - Status gagal/macet tampil sebagai catatan; tombolnya datang bersama `<TxButton>` (Fase 5–8).
+>
+> **Penjaga §A11 terpasang** (`phaseHits`): engine di log < yang dipakai server → semua
+> "belum lengkap"; > (sisa provider lain) → "ambigu", tidak ditampilkan.
+>
+> **Temuan saat verifikasi:** seed #5 menyimpan skor 2/3 (target 3/5) sebagai `dispute`, padahal
+> `decide()` = `release` (10 ≥ 9). Kartu juri kini memeriksa ulang dan memperingatkan, alih-alih
+> menulis "jatuh di antara batas". Seed #4 `Accepted` tapi punya verdict, #6 settle tanpa
+> `verdict_json` — keduanya artefak seed; UI menampilkannya apa adanya dengan penjelasan.
+> Bonus: `.faint`/`.muted` dipakai `ActivityView` sejak Fase 3 tapi tak pernah didefinisikan —
+> kini ada. `SCAN` yang tersalin 2× dipindah ke `lib/explorer.ts`.
+>
+> **Belum:** polling (Fase 9 — cukup tambah `refetchInterval` di `useJob`). Status tanpa data
+> seed (`baseline_failed`, `structural_failed`, `verifying`, `jury_*`, reclaim, macet)
+> diuji lewat fungsi murni, belum dilihat di layar.
+
 **Tujuan.** `/jobs/[id]` lengkap dan benar, masih tanpa satu pun tombol tulis.
 
 ### Penyesuaian dari rancangan awal
@@ -882,6 +972,47 @@ npm run dev
 ---
 
 # Fase 5 — Wallet + `<TxButton>`
+
+> **Status: selesai 2026-09-25.** Didahului audit Fase 0–4 (semua `check`, build produksi,
+> pindai bundle, smoke test 30 URL di `next start`) — bersih.
+>
+> **Dibaca dulu dari paket terpasang (wagmi 3.7.7 / @wagmi/core 3.6.5), bukan dari ingatan v2:**
+> `useConnection` (bukan `useAccount`), `useConnectors`, hook aksi pakai `mutate`, `connection.chain`
+> **undefined** di jaringan asing sementara `chainId` tetap terisi (penjaga membandingkan `chainId`),
+> dan `ssr: true` aman untuk EIP-6963 (`hydrate.js` menambahkan wallet yang mengumumkan diri
+> sebelum hidrasi).
+>
+> **Isi:** `lib/wagmi.ts` · `lib/tx.ts` (logika murni) · `components/wallet/*` (modal EIP-6963,
+> tombol akun + menu, wallet mini, ChainGuard) · `components/tx/TxButton.tsx` · Ringkasan, Kontrak
+> saya, label "Anda: …" di kartu & detail. Provider di `app/providers.tsx` (bukan
+> `components/wallet/Providers.tsx` — sudah ada, cukup ditambah `WagmiProvider`).
+>
+> **Keputusan desain yang perlu diketahui:**
+> - `<TxButton>` **menolak mengirim** selama `CHAIN_ENABLED=false`: kontraknya hidup di testnet
+>   tapi server tidak mengindeks → dana terkunci tanpa jejak (job yatim, §A7/A8).
+> - Urutan: simulasi (revert ketahuan sebelum gas) → tanda tangan → receipt (`status` diperiksa)
+>   → `afterReceipt` → `POST /api/sync/:id` (ulang sekali bila `RATE_LIMITED`) → invalidasi cache.
+> - Setelah sukses tombol kirim **tidak muncul lagi** — klik kedua `createJob` = budget terkunci dua
+>   kali, dan simulasi tidak bisa mencegahnya. Yang boleh diulang hanya langkah sesudah receipt
+>   ("Sinkronkan ulang" / "Coba simpan lagi"), dengan receipt yang sama.
+> - Receipt belum datang dalam 120 dtk → keadaan `unknown` + "Periksa lagi" (hash sama), **bukan**
+>   tombol kirim ulang.
+> - Hanya 6 fungsi milik pengguna yang bisa dipanggil (`UserWriteFn`); fungsi Oracle/owner ditolak compiler.
+> - "Terkunci di kontrak" = **saldo on-chain kontrak** (§A5). Tren 7 hari dari ledger hanya tampil bila
+>   ledger cocok sampai ke wei; kalau tidak, selisihnya disebut (mode dev: data seed).
+> - Audit verdict: hash on-chain kini dibaca **browser** langsung (`getJob`), bukan server.
+> - Saldo wallet diringkas (`formatTBNBShort`, dipotong ke bawah, nilai penuh di tooltip);
+>   nominal kontrak tetap presisi penuh.
+>
+> **Guard baru `check:security` §8:** `NEXT_PUBLIC_RPC_URL` https, tidak menyalin `RPC_URL` berkunci.
+> Temuan saat membuatnya: `RPC_URL` saat ini publicnode **tanpa** kunci — catatan A21 ("URL + kunci")
+> dikoreksi.
+>
+> **Verifikasi:** 310+47+60 uji murni (termasuk klasifikasi error dengan kelas error viem
+> sungguhan). Uji browser lewat DevTools Protocol dengan **wallet tiruan EIP-6963** (tanpa transaksi):
+> 30/30 — butir 1–4 di bawah + menu/putus + ponsel 390 px; skenario tanpa wallet 4/4 (butir 6).
+> **Belum diuji:** butir 5 (MetaMask + Coinbase sungguhan bersamaan) dan jalur kirim `<TxButton>` —
+> aksi tulis pertama baru ada di Fase 6, dan butuh `CHAIN_ENABLED=true`.
 
 **Tujuan.** Koneksi wallet, penjaga jaringan, dan satu komponen yang menangani
 seluruh siklus hidup transaksi.
@@ -936,6 +1067,39 @@ npm run dev
 ---
 
 # Fase 6 — TULIS #1: `/create`
+
+> **Status: selesai & terverifikasi on-chain 2026-09-25.** Job pertama dibuat lewat Rabby →
+> **jobId 0** (§A9). Diperiksa terhadap kontrak: hash, client, budget, batas ambil DB == on-chain;
+> deposit tercatat lewat sync; baseline 5 run selesai (`mock-a`). Butir 8: brand dirusak satu
+> huruf → `400 HASH_MISMATCH`, database tidak berubah.
+> Seed & job uji (1–6, 910, 911) sudah dihapus, `CHAIN_ENABLED=true`, `jobCount()` on-chain = 0.
+>
+> **Isi:** `lib/job-input.ts` (aturan form, MURNI — `LIMITS` dipindah ke sini, `lib/validate-input.ts`
+> mengekspor ulang; perilaku backend identik, `check-input` 60/60) · `lib/create-job.ts` (snapshot,
+> jobId dari event, POST idempoten, catatan tertunda, §A8) · `components/create/CreateJobView.tsx`.
+>
+> **Tambahan di luar rencana (dengan alasan):**
+> - **Snapshot beku saat klik** — tx & POST (dan percobaan ulangnya) memakai data yang SAMA; hash di
+>   chain tidak bisa diubah lagi. Deadline ISO dari detik yang sama (tanpa milidetik) = persis on-chain.
+> - **Catatan transaksi tertunda + panel "Lanjutkan penyimpanan"** — tab ditutup setelah tx terkirim
+>   tapi sebelum POST = dana terkunci tanpa metadata, job tak punya halaman, `reclaimExpired` tak
+>   terjangkau dari UI. Pemulihan memakai hash yang sama, tanpa tx baru.
+> - **POST idempoten** — gagal → cek `GET /api/jobs/:id`; ada dengan hash sama = sukses. `RATE_LIMITED` diulang sekali.
+> - **Event `JobCreated` diperiksa silang** (kontrak, client, hash, budget) sebelum metadata disimpan.
+> - **§A8 dev-path mulai jobId 900000** — dev job ber-id rendah akan bertabrakan dengan job on-chain.
+>
+> **Temuan backend (dilaporkan, tidak diubah):** baris baru di nama brand lolos `requireText` tapi
+> membuat `canonicalQueryPool` melempar Error biasa → **500**, bukan 400. FE mencegahnya.
+> `enginesFor(true)` di provider 1-engine juga melempar `OracleError` (→ 500) SETELAH tx — tidak
+> terjangkau sekarang (mock & claude sama-sama 2 engine).
+>
+> **Temuan lingkungan:** dev server sempat membalas **404 untuk semua `/api/*`** dan `/jobs/[id]` —
+> cache Turbopack `.next/dev` basi. Hapus folder itu + restart → normal.
+>
+> **Verifikasi:** 371 uji murni (cermin FE↔`validate-input`, hash server == hash kontrak, jobId 0 dari
+> event, penolakan event tak cocok, idempotensi). Browser (wallet tiruan, tanpa tx): 21/21 — termasuk
+> **simulasi `createJob` ke kontrak SUNGGUHAN lolos** sampai wallet diminta tanda tangan, batas ambil
+> 5 menit ditolak (§A7), panel pemulihan per-wallet, ponsel.
 
 **Tujuan.** Job pertama berhasil dibuat. Ini fase yang dimaksud `handover §8.4`.
 
@@ -1002,6 +1166,31 @@ npx tsx scripts/dev-chain-read.ts    # 20 pemeriksaan jalur baca — harus hijau
 ---
 
 # Fase 7 — TULIS #2: ambil kontrak & submit hasil
+
+> **Status: kode selesai 2026-09-26; menunggu uji transaksi sungguhan oleh freelancer (0xD28f…5F16).**
+> `lib/deliverable.ts` (penjaga + pengiriman konten) · `components/job/Actions.tsx` (AcceptCard,
+> DeliverableCard) · `WorkCard` memilih kartu dari peran wallet. `lib/structural.ts` kini mengimpor
+> `textHitsBrand` langsung dari `lib/brand-match` (fungsi yang sama) → form memakai `checkStructural`
+> MILIK SERVER, dan bundle tetap bebas SDK Anthropic (terbukti di build).
+>
+> **Dikonfirmasi dari bytecode kontrak** (`GeoEscrow.json`): pesan require `GEO: client tidak boleh
+> ambil sendiri`, `GEO: nilai bond tidak sesuai`, `GEO: bukan freelancer job ini`, dst.
+>
+> **Temuan backend — DIPERBAIKI 2026-09-26 (disetujui):** `POST /api/jobs/:id/deliverable` menulis
+> `deliverable_hash` ke DB pada kiriman PERTAMA — sebelum ada apa pun di chain — dan endpoint-nya tanpa
+> autentikasi. Akibatnya freelancer tak bisa merevisi sebelum tanda tangan, dan siapa pun bisa
+> "mengunci" duluan. **Perbaikan:** `lib/deliverable-lock.ts` — konten terkunci ke hash **on-chain**
+> (dibaca dari kontrak), bukan kiriman pertama; `deliverable_hash` di DB hanya cermin nilai on-chain.
+> Gerbang `confirmStructural` kini juga membaca hash on-chain (dulu `if (job.deliverable_hash && …)`
+> dilewati diam-diam bila kolom kosong). Bentuk request/respons **tidak berubah**; chain mati = perilaku
+> lama. Tambalan FE (sync → kirim ulang) dicabut. **Revisi: otomatis, bukan dibuka client** — sebelum
+> tanda tangan bebas; sesudahnya terkunci; ditolak struktural → kontrak mengembalikan ke `Accepted`.
+> Sisa risiko kecil (dicatat): draf sebelum tanda tangan bisa ditimpa orang lain (FE mendahulukan draf
+> lokal + kirim ulang setelah receipt), dan rate limit per-job bisa "dihabiskan" pengirim lain.
+>
+> **Verifikasi:** 394 uji murni (penjaga peran, structural = server, revisi-lewat-sync, rate limit,
+> terkunci on-chain). Browser vs kontrak #0 SUNGGUHAN (wallet tiruan, tanpa tx): 8/8 — bond =
+> `requiredBond(0)` = 0,00015; client tidak melihat tombol; simulasi `acceptJob` lolos sampai tanda tangan.
 
 ### Penyesuaian dari rancangan awal
 
@@ -1243,6 +1432,8 @@ bukan tangan saya.
 | A16 | Utang CSP halaman | **Dilunasi**, diuji dengan wallet terhubung | Fase 10 | — |
 | A18 | `parseJobId` backend menerima `0x10`, `1e1`, `007`, dan angka > 2^53 | **Selesai 2026-09-24:** satu aturan di `lib/route-params.ts` untuk BE & FE; 10 route kini 400; `lib/openapi.ts` + `api.http` diperbarui | Fase 0 | — |
 | A19 | `.gitignore` tidak mengabaikan `.env.local` (berisi kunci privat) | **Diperbaiki 2026-09-24:** `.env*` dikembalikan | Fase 0 | — |
+| A20 | `GET /api/jobs` halaman di luar jangkauan → **500** + pesan mentah PostgREST bocor ke klien | **Diperbaiki 2026-09-24:** `listJobs()` menangkap `PGRST103` saja → `{ jobs: [], total, page, limit }` (bentuk sama), total dihitung ulang dengan filter yang sama. Uji DB `scripts/dev-list-jobs.ts` 10/10; `lib/openapi.ts` + `api.http` diperbarui; pengaman FE dicabut | Fase 3 | — |
+| A21 | Pesan error mentah (PostgREST, viem, SDK Anthropic) dibungkus ke `ApiError`/`fail()` dan ke `last_error` → bocor ke klien. Pesan viem terbukti memuat **URL RPC lengkap + isi request** (koreksi Fase 5: RPC_URL saat ini publicnode TANPA kunci — kuncinya baru ikut bocor begitu RPC diganti ke penyedia berbayar; perbaikannya tetap perlu) | **Diperbaiki 2026-09-24:** `internalError()` + `publicErrorMessage()` di `lib/http.ts`; 22 lokasi diganti (asli → `cause` + log server). Bentuk respons tetap; satu efek samping: penolakan kontrak di `/verify` (revert saat simulasi ATAU receipt revert) kini `CHAIN_FAILED` (dulu `ORACLE_FAILED`), status tetap 502; pesan keduanya buatan kita (status on-chain / hash tx) dan diteruskan ke `last_error`. Anti bayar-ganda (`sudahLewat`), lock, dan retry tidak tersentuh. Guard statis di `check:security` §3 (terbukti menangkap 22/22 di kode lama). Sengaja dibiarkan: `/api/dev/seed` (dev), `/api/hello` (alat diagnosis — perketat sebelum produksi) | Fase 3 | — |
 | A17 | Gas **bukan** masalah (tebakan awal meleset 100x); yang langka tBNB untuk **budget** | **Gas dibiarkan apa adanya.** Budget demo dikecilkan ke 0,002–0,005 tBNB | Fase 6 | — |
 
 **13 dari 17 selesai di kode.** Satu yang butuh tangan Anda di blockchain:

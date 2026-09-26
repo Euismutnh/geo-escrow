@@ -5,8 +5,9 @@ import { runPhase } from '../oracle/runner';
 import { deriveSubset, subsetSize } from '../vrf';
 import { decide } from '../scoring';
 import { verdictHash, type Verdict } from '../verdict';
-import { getVerificationSeed, settleOnChain } from '../chain-server';
-import { ApiError } from '../http';
+import { getVerificationSeed, readJobFromChain, settleOnChain } from '../chain-server';
+import { syncSetelahTx } from '../indexer';
+import { ApiError, internalError, publicErrorMessage } from '../http';
 import type { Job } from '../types';
 
 export interface VerifyResult {
@@ -60,7 +61,11 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
   // settlement-nya gagal -- LENYAP begitu lock diambil. Membacanya setelah
   // itu akan selalu menyimpulkan "sudah diverifikasi" dan settlement yang
   // gagal tidak akan pernah bisa diulang.
-  const isResume = Boolean(preview.verification_decision && preview.job_state === 'error');
+  //
+  // Verdict ada + job TIDAK idle = settlement belum tuntas: 'error' (gagal
+  // tercatat), atau `running_verify` yang macet dan akan diambil alih
+  // acquireLock(). assertVerifiable() sudah menolak kasus verdict + idle.
+  const isResume = Boolean(preview.verification_decision);
 
   const locked = await acquireLock(jobId, ['idle', 'error'], 'running_verify');
   if (!locked) throw new ApiError('BUSY', 'Verifikasi sedang berjalan untuk job ini');
@@ -83,6 +88,7 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
       );
 
       await releaseLock(jobId, 'idle');
+      await syncSetelahTx(jobId, 'verify');
       return {
         score: verdict.score,
         of: verdict.of,
@@ -94,6 +100,21 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
         alreadySettled: alreadyDone,
         resumedSettlement: true,
       };
+    }
+
+    // ---- 0. Status KONTRAK, bukan cermin DB ----
+    // DB bisa tertinggal: job yang sudah dieskalasi ke arbiter masih
+    // tercatat Verifying sampai ada sync. Diperiksa SEBELUM bertanya ke AI
+    // supaya kredit tidak terbakar untuk job yang tidak akan di-settle —
+    // settleOnChain() memeriksanya lagi tepat sebelum mengirim.
+    if (env.chainEnabled) {
+      const onChain = await readJobFromChain(BigInt(jobId));
+      if (!onChain || Number(onChain.status) !== 3) {
+        throw new ApiError(
+          'WRONG_STATUS',
+          'Status di blockchain sudah bukan Verifying — tampilan sedang diperbarui dari blockchain'
+        );
+      }
     }
 
     // ---- 1. Seed VRF dari on-chain ----
@@ -154,7 +175,7 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
       })
       .eq('job_id', jobId);
 
-    if (error) throw new ApiError('INTERNAL', error.message);
+    if (error) throw internalError('menyimpan hasil verifikasi', error);
 
     // ---- 7. Baru kirim on-chain ----
     // Kontrak yang mengubah status dan memindahkan dana. Backend TIDAK
@@ -162,6 +183,7 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
     const { hash: txHash, alreadyDone } = await settleOnChain(BigInt(jobId), decision, vHash);
 
     await releaseLock(jobId, 'idle');
+    await syncSetelahTx(jobId, 'verify');
 
     return {
       score,
@@ -175,7 +197,10 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
       resumedSettlement: false,
     };
   } catch (e) {
-    await releaseLock(jobId, 'error', e instanceof Error ? e.message : String(e));
+    await releaseLock(jobId, 'error', publicErrorMessage(e, 'Kesalahan sistem — detail tercatat di log server'));
+    // Settle mungkin tetap masuk blok (receipt hilang), atau status kontrak
+    // memang sudah berubah (WRONG_STATUS di atas) — DB harus mengikutinya.
+    await syncSetelahTx(jobId, 'verify');
     throw e;
   }
 }
@@ -184,10 +209,14 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
 function assertVerifiable(job: Job): void {
   assertBasics(job);
 
-  // Verdict sudah ada DAN job tidak sedang error = benar-benar selesai.
-  // Kalau job_state 'error', berarti settlement-nya yang gagal dan boleh
-  // diulang lewat jalur lanjutan.
-  if (job.verification_decision && job.job_state !== 'error') {
+  // Verdict sudah ada DAN job idle = benar-benar selesai. Selain idle
+  // ('error', atau running_verify macet), settlement-nya belum tuntas dan
+  // boleh diulang lewat jalur lanjutan. running_verify yang MASIH hidup
+  // ditolak acquireLock() dengan BUSY.
+  //
+  // Karena itu TIDAK ADA jalur lain yang boleh menyetel job ber-verdict ke
+  // 'idle' selain settlement yang sukses — lihat penjaga di runBaseline().
+  if (job.verification_decision && job.job_state === 'idle') {
     throw new ApiError('WRONG_STATUS', 'Job ini sudah diverifikasi');
   }
 }

@@ -1,5 +1,6 @@
 import type { Log } from 'viem';
 import { db } from './db';
+import { env } from './env';
 import { geoEscrowAbi, STATUS_BY_INDEX } from './abi';
 import {
   publicClient,
@@ -231,9 +232,15 @@ export function keBarisActivity(
       };
 
     case 'DisputeRaised':
+      // Hash nol = escalateStuckJob (kontrak memancarkan DisputeRaised
+      // dengan bytes32(0)), bukan keputusan Oracle. Dulu keduanya tercatat
+      // "skor di zona abu" — padahal eskalasi terjadi justru karena TIDAK
+      // ada skor sama sekali.
       return {
         type: 'dispute_raised',
-        note: `Skor di zona abu — diteruskan ke juri (verdict ${String(a.verdictHash).slice(0, 10)}…)`,
+        note: /^0x0*$/.test(String(a.verdictHash ?? ''))
+          ? 'Verifikasi melewati batas waktu — diteruskan ke juri'
+          : `Skor di zona abu — diteruskan ke juri (verdict ${String(a.verdictHash).slice(0, 10)}…)`,
       };
 
     case 'Settled': {
@@ -250,17 +257,21 @@ export function keBarisActivity(
         amount_wei: String(a.amount),
         from_addr: kontrak,
         to_addr: String(a.recipient).toLowerCase(),
+        // `amount` = sisa budget + bond, dalam SATU transfer (GeoEscrow._settle).
         note: olehJuri
           ? keFreelancer
-            ? 'Juri memutuskan: cairkan ke freelancer'
-            : 'Juri memutuskan: refund ke client'
+            ? 'Juri memutuskan: sisa budget + bond cair ke freelancer'
+            : 'Juri memutuskan: sisa budget + bond ke client'
           : keFreelancer
-            ? 'Target tercapai — sisa dana dicairkan'
-            : 'Target tidak tercapai — dana dikembalikan',
+            ? 'Target tercapai — sisa budget + bond dicairkan'
+            : 'Target tidak tercapai — sisa budget + bond ke client',
       };
     }
 
     case 'BondSettled':
+      // RINCIAN, bukan transfer kedua: bond sudah ikut di `Settled.amount`.
+      // lib/ledger.ts menggolongkan tipe ini netral supaya tidak terhitung
+      // dua kali.
       return {
         type: a.slashed === true ? 'bond_slash' : 'bond_return',
         amount_wei: String(a.amount),
@@ -268,8 +279,8 @@ export function keBarisActivity(
         to_addr: String(a.recipient).toLowerCase(),
         note:
           a.slashed === true
-            ? 'Bond freelancer di-slash (gagal capai target)'
-            : 'Bond freelancer dikembalikan',
+            ? 'Rincian: bond freelancer di-slash ke client (sudah termasuk di atas)'
+            : 'Rincian: bond freelancer dikembalikan (sudah termasuk di atas)',
       };
 
     case 'Reclaimed':
@@ -300,7 +311,12 @@ export function keBarisActivity(
  * `status` di sini adalah SATU-SATUNYA tempat kolom itu ditulis (§2.1) —
  * jalur Oracle tidak pernah menyentuhnya.
  */
-async function segarkanJob(jobId: number, onChain: OnChainJob): Promise<boolean> {
+async function segarkanJob(
+  jobId: number,
+  onChain: OnChainJob,
+  /** Dari event Settled.byArbiter — kontrak tidak menyimpannya di storage. */
+  settledBy: 'oracle' | 'arbiter' | null = null
+): Promise<boolean> {
   const status = STATUS_BY_INDEX[Number(onChain.status)] as JobStatus | undefined;
   if (!status) {
     throw new Error(
@@ -318,6 +334,9 @@ async function segarkanJob(jobId: number, onChain: OnChainJob): Promise<boolean>
   const alamatAtauNull = (v: string | undefined) =>
     v && !/^0x0*$/.test(v) ? v.toLowerCase() : null;
 
+  const verdictHash = isiAtauNull(onChain.verdictHash);
+  const seed = isiAtauNull(onChain.verificationSeed);
+
   const { data, error } = await db()
     .from('jobs')
     .update({
@@ -328,9 +347,18 @@ async function segarkanJob(jobId: number, onChain: OnChainJob): Promise<boolean>
       budget_wei: String(onChain.budget),
       bond_wei: onChain.bond > 0n ? String(onChain.bond) : null,
       structural_released_wei: String(onChain.structuralReleased),
+      // Ikut dikosongkan saat rejectStructural me-reset hash & waktunya.
       deliverable_hash: isiAtauNull(onChain.deliverableHash),
-      verdict_hash: isiAtauNull(onChain.verdictHash),
-      verification_seed: isiAtauNull(onChain.verificationSeed),
+      deliverable_submitted_at:
+        onChain.submittedAt > 0n ? new Date(Number(onChain.submittedAt) * 1000).toISOString() : null,
+      // verdict_hash & seed: HANYA ditulis kalau kontrak sudah mengisinya.
+      // Alur verifikasi menyimpan verdict_hash ke DB SEBELUM settle (supaya
+      // settle yang gagal bisa diulang dengan hash yang sama); menimpanya
+      // dengan null di jeda itu membuat audit verdict tampil "tidak cocok".
+      // Kontrak tidak pernah mengosongkan kedua nilai ini setelah terisi.
+      ...(verdictHash ? { verdict_hash: verdictHash } : {}),
+      ...(seed ? { verification_seed: seed } : {}),
+      ...(settledBy ? { settled_by: settledBy } : {}),
       accept_deadline: new Date(Number(onChain.acceptDeadline) * 1000).toISOString(),
     })
     .eq('job_id', jobId)
@@ -427,20 +455,40 @@ export async function terapkanLogs(logs: LogTerurai[]): Promise<HasilIndex> {
     );
 
     const onChain = await readJobFromChain(BigInt(jobId));
+    if (!onChain) continue;
+
+    // Segarkan DULU: hasilnya memberi tahu apakah job ini punya baris di DB.
+    const adaDiDb = await segarkanJob(jobId, onChain, settledByDari(daftar));
+    // Job tanpa metadata (createJob dari luar aplikasi, atau tab ditutup
+    // sebelum POST /api/jobs) TIDAK boleh ditulis ke `activity`: kolom
+    // job_id-nya ber-FK ke `jobs`, insert-nya gagal, putaran ini melempar,
+    // bookmark tidak maju — dan indexer macet di rentang yang sama
+    // selamanya. Cukup satu `createJob{value: 1 wei}` untuk memicunya.
+    if (!adaDiDb) continue;
 
     for (const log of daftar) {
       const baris = keBarisActivity(log, onChain);
       if (!baris) continue;
       if (await tulisActivity(log, jobId, baris)) activityBaru++;
     }
-
-    if (onChain) {
-      await segarkanJob(jobId, onChain);
-      jobTersentuh.push(jobId);
-    }
+    jobTersentuh.push(jobId);
   }
 
   return { logs: logs.length, activityBaru, jobTersentuh };
+}
+
+/**
+ * Siapa yang menyelesaikan job, dari event `Settled` terakhir. Kontrak
+ * tidak menyimpannya di storage — tanpa ini `settled_by` kosong selamanya
+ * dan putusan arbiter tampil sebagai keputusan Oracle.
+ */
+/** @internal diekspor supaya bisa diuji langsung */
+export function settledByDari(logs: readonly LogTerurai[]): 'oracle' | 'arbiter' | null {
+  let hasil: 'oracle' | 'arbiter' | null = null;
+  for (const log of logs) {
+    if (log.eventName === 'Settled') hasil = log.args?.byArbiter === true ? 'arbiter' : 'oracle';
+  }
+  return hasil;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -474,10 +522,9 @@ export async function syncJob(jobId: number): Promise<HasilSync> {
     return { jobId, adaDiChain: false, logs: 0, activityBaru: 0, jobTersentuh: [] };
   }
 
-  const adaDiDb = await segarkanJob(jobId, onChain);
-
   // Ledger: cari log di jendela terbatas. RPC menolak rentang di atas
-  // 50.000 blok, filter topic atau tidak.
+  // 50.000 blok, filter topic atau tidak. Diambil SEBELUM menyegarkan job
+  // karena `settled_by` hanya ada di event Settled.
   const tip = await publicClient().getBlockNumber();
   const dari = tip > SYNC_LOOKBACK ? tip - SYNC_LOOKBACK : DEPLOY_BLOCK;
 
@@ -491,6 +538,13 @@ export async function syncJob(jobId: number): Promise<HasilSync> {
     toBlock: tip,
   })) as unknown as LogTerurai[];
 
+  const adaDiDb = await segarkanJob(jobId, onChain, settledByDari(logs));
+
+  // Tanpa baris di `jobs`, insert activity ditolak FK — lihat terapkanLogs().
+  if (!adaDiDb) {
+    return { jobId, adaDiChain: true, logs: logs.length, activityBaru: 0, jobTersentuh: [] };
+  }
+
   let activityBaru = 0;
   for (const log of logs) {
     const baris = keBarisActivity(log, onChain);
@@ -503,8 +557,29 @@ export async function syncJob(jobId: number): Promise<HasilSync> {
     adaDiChain: true,
     logs: logs.length,
     activityBaru,
-    jobTersentuh: adaDiDb ? [jobId] : [],
+    jobTersentuh: [jobId],
   };
+}
+
+/**
+ * syncJob() SETELAH transaksi Oracle — tidak pernah melempar.
+ *
+ * Transaksi Oracle (confirmStructural, rejectStructural, settle*,
+ * raiseDispute) memindahkan status kontrak, tapi tidak ada yang memberi
+ * tahu database: FE hanya menyinkronkan transaksi yang IA kirim. Tanpa
+ * ini status DB tertinggal sampai cron lewat — job tampil "Cek
+ * struktural…" padahal kontrak sudah Verifying, dan /verify menolaknya.
+ *
+ * Gagal di sini tidak mengubah apa pun yang sudah terjadi on-chain, jadi
+ * cukup dicatat: sync atau cron berikutnya menyusul.
+ */
+export async function syncSetelahTx(jobId: number, konteks: string): Promise<void> {
+  if (!env.chainEnabled) return;
+  try {
+    await syncJob(jobId);
+  } catch (e) {
+    console.error(`[${konteks}] job ${jobId}: status DB belum tersinkron dari chain:`, e);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════

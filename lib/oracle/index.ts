@@ -54,28 +54,7 @@ export function enginesFor(
   return p.engines.slice(0, 2);
 }
 
-/**
- * Apakah teks menyebut brand? Port dari textHitsBrand() di prototipe.
- *
- * Batas kata (\b) hanya dipasang di sisi yang berbatasan dengan karakter
- * kata. Rancangan awal selalu memasang \b di kedua sisi -- untuk brand yang
- * diawali atau diakhiri karakter non-kata (mis. "Acme!" atau "&Co"), \b
- * tidak akan pernah cocok, sehingga brand itu SELAMANYA dinilai tidak
- * disebut. Regex-nya tetap valid, jadi blok catch pun tidak menyelamatkan.
- */
-export function textHitsBrand(text: string, brand: string): boolean {
-  if (!text || !brand) return false;
-
-  const b = brand.trim();
-  if (!b) return false;
-
-  const escaped = b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const head = /\w/.test(b[0]) ? '\\b' : '';
-  const tail = /\w/.test(b[b.length - 1]) ? '\\b' : '';
-
-  try {
-    return new RegExp(head + escaped + tail, 'i').test(text);
-  } catch {
-    return text.toLowerCase().includes(b.toLowerCase());
-  }
-}
+// Dipindah ke modul murni lib/brand-match.ts supaya frontend bisa memakainya
+// tanpa menyeret provider Claude (@anthropic-ai/sdk). Re-export ini menjaga
+// semua impor lama (runner.ts, structural.ts, check-oracle.ts) tetap sama.
+export { textHitsBrand } from '../brand-match';

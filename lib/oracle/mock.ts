@@ -1,5 +1,6 @@
 import { keccak256, toHex } from 'viem';
 import type { OracleProvider, OracleRequest, OracleResult } from './types';
+import { MOCK_ENGINES } from './engines';
 
 /**
  * Provider tiruan -- tanpa jaringan, tanpa API key, tanpa biaya.
@@ -17,10 +18,8 @@ import type { OracleProvider, OracleRequest, OracleResult } from './types';
  */
 export const mockProvider: OracleProvider = {
   id: 'mock',
-  engines: [
-    { id: 'mock-a', name: 'Mock A', note: 'gaya ringkas & to-the-point' },
-    { id: 'mock-b', name: 'Mock B', note: 'gaya naratif dengan konteks tambahan' },
-  ],
+  // Definisinya di engines.ts (modul murni) supaya frontend bisa membaca labelnya.
+  engines: [...MOCK_ENGINES],
 
   async ask(req: OracleRequest): Promise<OracleResult> {
     const t0 = Date.now();

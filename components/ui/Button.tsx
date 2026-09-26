@@ -2,7 +2,8 @@ import Link from 'next/link';
 import type { ComponentProps, ReactNode } from 'react';
 import { Icon, type IconName } from './Icon';
 
-type Variant = 'primary' | 'secondary' | 'ghost';
+/** success/danger: putusan arbiter (Fase 8). net: 'Pindah ke BNB Testnet' saat jaringan salah. */
+export type Variant = 'primary' | 'secondary' | 'ghost' | 'success' | 'danger' | 'net';
 type Size = 'md' | 'sm';
 
 interface Style {
