@@ -15,7 +15,7 @@
  */
 process.loadEnvFile('.env.local');
 import { createInterface } from 'node:readline';
-import { createPublicClient, createWalletClient, http, getAddress, type Hex } from 'viem';
+import { createPublicClient, createWalletClient, http, getAddress, isAddress, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { bscTestnet } from 'viem/chains';
 import { geoEscrowAbi } from '../lib/abi';
@@ -96,9 +96,12 @@ async function main() {
 
   let oracleBaru: `0x${string}`;
   try {
-    // getAddress memvalidasi checksum, bukan cuma bentuknya. Alamat yang
-    // salah ketik satu karakter hampir selalu gagal di sini -- jauh lebih
-    // baik daripada lolos lalu peran oracle jatuh ke alamat tak bertuan.
+    // Checksum divalidasi lewat isAddress STRICT. getAddress() saja TIDAK
+    // memvalidasinya (viem memanggilnya dengan strict:false — terbukti di
+    // check-pure, bagian "admin arbiter"). Alamat huruf-campuran yang salah
+    // ketik satu karakter harus gagal di sini, bukan lolos lalu peran
+    // oracle jatuh ke alamat tak bertuan.
+    if (!isAddress(argumen, { strict: true })) throw new Error('checksum');
     oracleBaru = getAddress(argumen);
   } catch {
     console.error(`\n  "${argumen}" bukan alamat yang sah (checksum tidak cocok).`);

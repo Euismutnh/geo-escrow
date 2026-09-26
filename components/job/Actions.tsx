@@ -218,3 +218,49 @@ export function DeliverableCard({ job, rejected }: { job: Job; rejected: Activit
     </Card>
   );
 }
+
+// ---------------------------------------------------------------------
+// Putusan arbiter — arbiterDecide(jobId, toFreelancer)
+// ---------------------------------------------------------------------
+
+/**
+ * Dua tombol putusan, HANYA untuk wallet arbiter (dari GET /api/chain-info,
+ * bukan kolom per-job — arbiter adalah nilai tingkat-kontrak). Kontrak
+ * menolak alamat lain ("GEO: bukan arbiter") dan status selain Disputed.
+ *
+ * Jumlah yang ditampilkan dari kolom yang ditulis indexer (tidak ada
+ * persentase dihitung di FE, §A10): sisa budget + bond, SATU transfer ke
+ * pihak yang menang — persis GeoEscrow._settle().
+ */
+export function ArbiterDecision({ job }: { job: Job }) {
+  const remainder = BigInt(job.budget_wei) - BigInt(job.structural_released_wei);
+  const bond = job.bond_wei ? BigInt(job.bond_wei) : 0n;
+  const total = remainder + bond;
+  return (
+    <div className="stack">
+      <p style={{ fontSize: 13.5, color: 'var(--ink-2)', margin: 0 }}>
+        Anda arbiter kontrak ini. Putusan bersifat final: <Money wei={total} /> (sisa budget + bond freelancer) dikirim ke pihak yang Anda pilih dalam satu transaksi.
+      </p>
+      <div className="note-actions" style={{ marginTop: 0 }}>
+        <TxButton
+          label="Cairkan ke freelancer"
+          icon="check"
+          variant="success"
+          syncJobId={job.job_id}
+          allowed={job.status === 'Disputed' ? { ok: true } : { ok: false, reason: 'Hanya kontrak di zona abu yang bisa diputus.' }}
+          prepare={() => ({ functionName: 'arbiterDecide', args: [BigInt(job.job_id), true] as const })}
+          doneMessage="Putusan tercatat: dana cair ke freelancer."
+        />
+        <TxButton
+          label="Refund ke client"
+          icon="undo"
+          variant="danger"
+          syncJobId={job.job_id}
+          allowed={job.status === 'Disputed' ? { ok: true } : { ok: false, reason: 'Hanya kontrak di zona abu yang bisa diputus.' }}
+          prepare={() => ({ functionName: 'arbiterDecide', args: [BigInt(job.job_id), false] as const })}
+          doneMessage="Putusan tercatat: dana kembali ke client."
+        />
+      </div>
+    </div>
+  );
+}

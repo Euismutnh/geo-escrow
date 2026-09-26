@@ -3,6 +3,7 @@ import { runBaseline } from '@/lib/oracle/runner';
 import { getJob } from '@/lib/jobs-repo';
 import { parseJobId, verifyCronSecret } from '@/lib/validate';
 import { rateLimit } from '@/lib/rate-limit';
+import { isStaleLock } from '@/lib/status';
 import { ok, fail, handler, ApiError, publicErrorMessage } from '@/lib/http';
 
 // Baseline memanggil AI beberapa kali. Dengan CONCURRENCY=3 di runner,
@@ -52,7 +53,11 @@ export const POST = handler(async (
     if (job.baseline_score !== null) {
       return fail('WRONG_STATUS', 'Baseline sudah pernah diukur');
     }
-    if (job.job_state !== 'error') {
+    // Pengukuran yang MACET (proses mati di tengah jalan, > STALE_LOCK_MS)
+    // setara dengan yang gagal: runBaseline() mengambil alih lock-nya.
+    // Tanpa ini tombol coba-lagi di UI ditolak sampai cron lewat.
+    const stuck = (job.job_state === 'running_baseline' || job.job_state === 'queued_baseline') && isStaleLock(job, Date.now());
+    if (job.job_state !== 'error' && !stuck) {
       return fail('WRONG_STATUS', 'Baseline dijalankan otomatis saat job dibuat, tidak bisa dipicu manual');
     }
   }

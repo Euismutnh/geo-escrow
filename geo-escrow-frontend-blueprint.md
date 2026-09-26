@@ -1167,7 +1167,14 @@ npx tsx scripts/dev-chain-read.ts    # 20 pemeriksaan jalur baca — harus hijau
 
 # Fase 7 — TULIS #2: ambil kontrak & submit hasil
 
-> **Status: kode selesai 2026-09-26; menunggu uji transaksi sungguhan oleh freelancer (0xD28f…5F16).**
+> **Status: ✅ SELESAI & TERUJI ON-CHAIN 2026-09-26** (setelah Tahap 0 audit, `geo-escrow-audit-sistem.md`).
+> Job 0 oleh freelancer 0xD28f…5F16: `acceptJob` (bond 0,00015, tx 0x6bdad10e…) → periksa konten →
+> `submitDeliverable` (hash 0x56643b85…688ccc, 21.59.37) → Oracle `confirmStructural` (tx 0x4c57db7b…,
+> 0,0006 = 20% cair) → **DB tersinkron sendiri ke `Verifying` pukul 22.01.46 tanpa cron** (S-01 terbukti).
+> Chain = DB: status, hash, `structural_released_wei`, seed, `deliverable_submitted_at`. Seed on-chain
+> `0x…02` (konfirmasi S-04). Temuan uji: halaman tidak menyegarkan diri setelah kerja Oracle di latar
+> (spinner sampai F5) → polling status berspinner, dikerjakan bersama Fase 8. RPC publicnode sempat
+> lambat (±4,7 dtk; Rabby timeout `eth_gasPrice`) — RPC resmi `bsc-testnet.bnbchain.org` ±0,5 dtk.
 > `lib/deliverable.ts` (penjaga + pengiriman konten) · `components/job/Actions.tsx` (AcceptCard,
 > DeliverableCard) · `WorkCard` memilih kartu dari peran wallet. `lib/structural.ts` kini mengimpor
 > `textHitsBrand` langsung dari `lib/brand-match` (fungsi yang sama) → form memakai `checkStructural`
@@ -1235,6 +1242,33 @@ npx tsx scripts/dev-chain-read.ts    # 20 pemeriksaan jalur baca — harus hijau
 ---
 
 # Fase 8 — Verifikasi, juri, jalur pemulihan
+
+> **Status: bagian 1 ✅ SELESAI & TERUJI ON-CHAIN 2026-09-26 22.27** — job 0 jalur (a) happy path
+> tuntas dari UI: verifikasi → `settleRelease` (tx 0x46c3803e…) → `ReleasedFull`, `settled_by=oracle`,
+> 4/4 subset [1,2,3,4] = prediksi. `verdict_hash` DB = chain = keccak dihitung ulang. Ledger job 0 = 0 =
+> saldo kontrak on-chain (bukti perbaikan S-16: `final_release` 0,00255 sudah termasuk bond). UI
+> berpindah sendiri tanpa F5 (polling).
+> Polling `useJob` (Fase 9 dimajukan: hanya status hidup yang tidak macet, atau selama aksi Oracle
+> berjalan; 4 dtk; tab tersembunyi berhenti) · `components/job/OracleActions.tsx`: Verifikasi sekarang /
+> Coba verifikasi lagi / Lanjutkan verifikasi (macet) · Ukur ulang baseline (gagal atau macet) ·
+> Konfirmasi ulang struktural (gagal sistem, macet, atau idle > 2 mnt setelah submit) — hanya untuk
+> client & freelancer · `lib/job-view.ts` `oracleOffer`/`verifyOutcome` (diuji) · `lib/status.ts`
+> `STALE_LOCK_MS`/`RUNNING_STATES` satu sumber untuk server & FE · route baseline menerima pengukuran
+> macet · `lib/invalidate.ts` dipakai TxButton & tombol Oracle. Bentuk respons endpoint tidak berubah.
+> **Prediksi job 0 (mock, seed 0x02):** subset [1,2,3,4], hit 4/4, `release` → sisa 0,0024 + bond
+> 0,00015 = 0,00255 ke freelancer.
+> **Bagian 2 kode selesai 2026-09-26 — menunggu uji on-chain:** `components/admin/ArbiterAdmin.tsx`
+> (kartu "Ganti arbiter" di Ringkasan, HANYA wallet owner; owner menandatangani `setArbiter` di wallet —
+> kunci owner tidak diekspor) · `lib/admin.ts` `checkNewArbiter` (checksum strict, bukan owner/Oracle/
+> arbiter sekarang) · `ArbiterDecision` di JuryCard (dua tombol `arbiterDecide`, hanya wallet arbiter) ·
+> `UserWriteFn` + `setArbiter`, dengan pagar uji: fungsi owner berbahaya & fungsi Oracle tidak boleh
+> masuk. **Bug ditemukan uji:** `getAddress()` viem tidak memvalidasi checksum (strict:false) —
+> diperbaiki di `lib/admin.ts` & `scripts/set-oracle.ts` (`isAddress` strict).
+> **Job demo zona abu (dihitung dari mock, tidak bergantung seed karena n=3 → subset = semua):**
+> brand "Batik Sekar Lasem", 3 pertanyaan (lihat percakapan 26-09), target 3 → baseline 1/3,
+> verifikasi 2/3 → `dispute`.
+> Sisa Fase 8: reclaim, eskalasi, kirim ulang konten (hash tidak cocok),
+> peringatan target ≤ baseline (K2), audit verdict terikat chain (S-12), mitigasi seed (S-04).
 
 **Tujuan.** Menutup semua cabang yang tersisa — termasuk yang tidak punya gambar.
 

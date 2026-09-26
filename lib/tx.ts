@@ -13,10 +13,17 @@ import type { Job } from './types';
 // ---------------------------------------------------------------------
 
 /**
- * Hanya enam fungsi milik pengguna. Fungsi Oracle (confirmStructural,
- * settleRelease, …) dan owner (setOracle, …) sengaja TIDAK ada di sini:
- * kontrak juga menolaknya, tapi FE tidak perlu menawarkan tombol yang
- * pasti revert. Tipe ini membuat salah panggil ditolak compiler.
+ * Enam fungsi milik pengguna + SATU fungsi owner. Fungsi Oracle
+ * (confirmStructural, settleRelease, …) dan owner lainnya (setOracle,
+ * setVerifyTimeout, transferOwnership, renounceOwnership) sengaja TIDAK
+ * ada di sini: FE tidak perlu menawarkan tombol yang pasti revert atau yang
+ * berbahaya. Tipe ini membuat salah panggil ditolak compiler.
+ *
+ * `setArbiter` ada karena arbiter hasil deploy (0xd1ff…) kuncinya tidak
+ * diketahui siapa pun — tanpa menggantinya, job Disputed terkunci selamanya.
+ * Owner menandatanganinya di wallet-nya sendiri, jadi private key owner
+ * tidak pernah perlu diekspor (lebih aman dari skrip seperti set-oracle.ts).
+ * Tombolnya hanya tampil untuk wallet owner (components/admin/ArbiterAdmin).
  */
 export type UserWriteFn =
   | 'createJob'
@@ -24,7 +31,8 @@ export type UserWriteFn =
   | 'submitDeliverable'
   | 'arbiterDecide'
   | 'reclaimExpired'
-  | 'escalateStuckJob';
+  | 'escalateStuckJob'
+  | 'setArbiter';
 
 export type TxCall<F extends UserWriteFn = UserWriteFn> = {
   functionName: F;

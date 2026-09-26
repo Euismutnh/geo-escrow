@@ -5,7 +5,7 @@ import type { ChainInfo } from '@/lib/chain-server';
 import { addrUrl, isTxHash, shortHash, txUrl } from '@/lib/explorer';
 import { formatRelative, formatTime, shortAddr } from '@/lib/format';
 import {
-  fundsLabel, heldInContract, isAcceptExpired, isHashMismatch, isVerifyStuck, phaseHits, rejectedSubmission,
+  fundsLabel, heldInContract, isAcceptExpired, isHashMismatch, isVerifyStuck, oracleOffer, phaseHits, rejectedSubmission,
   type PhaseHits, type Step, type TimeCtx,
 } from '@/lib/job-view';
 import type { UiStatus } from '@/lib/status';
@@ -13,7 +13,8 @@ import type { ActivityEntry, Job, OracleRun } from '@/lib/types';
 import { decide } from '@/lib/scoring';
 import { subsetSize } from '@/lib/vrf';
 import type { Relation } from '@/lib/tx';
-import { AcceptCard, DeliverableCard } from './Actions';
+import { AcceptCard, ArbiterDecision, DeliverableCard } from './Actions';
+import { OracleActionButton } from './OracleActions';
 
 /*
  * Kartu-kartu halaman detail (/jobs/[id]) — BACA SAJA di Fase 4. Tombol
@@ -167,25 +168,39 @@ export function WorkCard({ job, ui, runs, activity, time, rel, chain }: {
 }) {
   const n = job.queries.length;
   const body = (title: string, children: ReactNode) => <Card title={title}><div className="card-b stack">{children}</div></Card>;
+  // Tombol yang memicu kerja Oracle (verifikasi / konfirmasi ulang / ukur ulang) — atau null.
+  const offer = oracleOffer(job, ui, time.now);
+  const action = offer && (
+    <>
+      {offer.why && <div className="note note-warn"><Icon name="clock" /><div><b>{offer.why}</b> Dana tetap aman di kontrak.</div></div>}
+      <OracleActionButton jobId={job.job_id} offer={offer} rel={rel} primary={ui === 'awaiting_verify'} />
+    </>
+  );
 
   switch (ui) {
     case 'baseline_running': {
       const done = phaseHits(job, runs, 'baseline').hits.size;
       return body('Baseline', (
-        <Progress done={done} total={n}>
-          <b>Oracle sedang mengukur baseline — {done} dari {n} pertanyaan.</b> Kontrak bisa diambil freelancer setelah baseline selesai.
-        </Progress>
+        <>
+          <Progress done={done} total={n}>
+            <b>Oracle sedang mengukur baseline — {done} dari {n} pertanyaan.</b> Kontrak bisa diambil freelancer setelah baseline selesai.
+          </Progress>
+          {action}
+        </>
       ));
     }
     case 'baseline_failed':
       return body('Baseline', (
-        <div className="note note-err">
-          <Icon name="alert" />
-          <div>
-            <b>Baseline gagal diukur.</b> Dana tetap aman di kontrak. Pengukuran bisa diulang — pertanyaan yang sudah terjawab tidak dibayar dua kali.
-            <Tech error={job.last_error} />
+        <>
+          <div className="note note-err">
+            <Icon name="alert" />
+            <div>
+              <b>Baseline gagal diukur.</b> Dana tetap aman di kontrak. Pengukuran bisa diulang — pertanyaan yang sudah terjawab tidak dibayar dua kali.
+              <Tech error={job.last_error} />
+            </div>
           </div>
-        </div>
+          {action}
+        </>
       ));
     case 'open': {
       if (isAcceptExpired(job, time.now)) {
@@ -237,6 +252,7 @@ export function WorkCard({ job, ui, runs, activity, time, rel, chain }: {
             <span className="spin" aria-hidden="true" />
             <div><b>Oracle sedang mengonfirmasi cek struktural ke kontrak.</b> Sebagian budget cair otomatis ke freelancer setelah ini selesai.</div>
           </div>
+          {action}
         </>
       ));
     case 'structural_failed': {
@@ -253,6 +269,7 @@ export function WorkCard({ job, ui, runs, activity, time, rel, chain }: {
               <Tech error={job.last_error} />
             </div>
           </div>
+          {action}
         </>
       ));
     }
@@ -278,7 +295,8 @@ export function WorkCard({ job, ui, runs, activity, time, rel, chain }: {
                 <div><b>Verifikasi macet melewati batas waktu kontrak.</b> Siapa pun boleh meneruskan kontrak ini ke arbiter agar dana tidak tertahan.</div>
               </div>
             )
-            : <p className="hint" style={{ margin: 0 }}>Langkah berikutnya: verifikasi. Oracle mengukur ulang {subsetSize(n)} dari {n} pertanyaan yang dipilih acak, dengan konten ini sebagai konteks. Verifikasi tidak berjalan sendiri — perlu dipicu dari halaman ini.</p>}
+            : <p className="hint" style={{ margin: 0 }}>Langkah berikutnya: verifikasi. Oracle mengukur ulang {subsetSize(n)} dari {n} pertanyaan yang dipilih acak, dengan konten ini sebagai konteks, lalu kontrak membagikan dana sesuai hasilnya. Verifikasi tidak berjalan sendiri — client atau freelancer memicunya di bawah ini.</p>}
+          {action}
         </>
       ));
     }
@@ -290,6 +308,7 @@ export function WorkCard({ job, ui, runs, activity, time, rel, chain }: {
           <Progress done={done} total={total}>
             <b>Oracle memverifikasi — {done} dari {total} pertanyaan terpilih.</b> Hasil dan keputusan settlement muncul otomatis.
           </Progress>
+          {action}
           <DelivBox job={job} />
         </>
       ));
@@ -309,7 +328,7 @@ const fmtNum = (x: number) => x.toLocaleString('id-ID', { maximumFractionDigits:
  * Angka pecahan di sini hanya untuk MENGGAMBAR; keputusannya sendiri
  * integer dan sudah diambil server.
  */
-export function JuryCard({ job, arbiter }: { job: Job; arbiter: string | null }) {
+export function JuryCard({ job, arbiter, rel }: { job: Job; arbiter: string | null; rel: Relation }) {
   const n = job.queries.length;
   const of = job.verification_of;
   let body: ReactNode;
@@ -358,18 +377,20 @@ export function JuryCard({ job, arbiter }: { job: Job; arbiter: string | null })
     <Card title="Zona abu · perlu putusan arbiter" className="card-warn">
       <div className="card-b stack">
         {body}
-        <div className="note note-plain">
-          <Icon name="lock" />
-          <div>
-            Hanya arbiter yang bisa memutus kontrak ini. Kontrak menolak transaksi dari alamat lain.
-            {arbiter && (
-              <div className="who" style={{ marginTop: 8 }}>
-                <a className="mono lnk" style={{ fontSize: 12.5 }} href={addrUrl(arbiter)} target="_blank" rel="noopener noreferrer">{shortAddr(arbiter)}</a>
-                <span style={{ fontSize: 12 }}>arbiter</span>
-              </div>
-            )}
+        {rel === 'arbiter' ? <ArbiterDecision job={job} /> : (
+          <div className="note note-plain">
+            <Icon name="lock" />
+            <div>
+              Hanya arbiter yang bisa memutus kontrak ini. Kontrak menolak transaksi dari alamat lain.
+              {arbiter && (
+                <div className="who" style={{ marginTop: 8 }}>
+                  <a className="mono lnk" style={{ fontSize: 12.5 }} href={addrUrl(arbiter)} target="_blank" rel="noopener noreferrer">{shortAddr(arbiter)}</a>
+                  <span style={{ fontSize: 12 }}>arbiter</span>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </Card>
   );

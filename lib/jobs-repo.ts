@@ -1,6 +1,6 @@
 import { db } from './db';
 import { ApiError, internalError } from './http';
-import { MARKET_FILTERS, type MarketFilter } from './status';
+import { MARKET_FILTERS, RUNNING_STATES, STALE_LOCK_MS, type MarketFilter } from './status';
 import type { Job, OracleRun, ActivityEntry, JobState } from './types';
 
 export async function getJob(jobId: number): Promise<Job> {
@@ -181,11 +181,10 @@ export async function releaseLock(
   if (error) throw internalError('melepas kunci job', error);
 }
 
-/** Lock dianggap macet setelah 3 menit tanpa perubahan. */
-const STALE_LOCK_MS = 3 * 60_000;
-
 /**
- * State yang dianggap "sedang berjalan" dan karena itu bisa macet.
+ * State yang dianggap "sedang berjalan" dan karena itu bisa macet. Sumbernya
+ * lib/status.ts (RUNNING_STATES, STALE_LOCK_MS) — FE memakai angka yang SAMA
+ * untuk memutuskan kapan menawarkan tombol coba-lagi.
  *
  * `queued_baseline` ikut masuk, bukan hanya `running_*`. Alasannya: job
  * dibuat dengan state itu, lalu `after()` yang memulai baselinenya.
@@ -194,13 +193,7 @@ const STALE_LOCK_MS = 3 * 60_000;
  * pernah terukur, tanpa pesan error apa pun. Dengan dimasukkan ke sini,
  * job tersebut jatuh ke 'error' dan UI menampilkan tombol coba-lagi.
  */
-const STUCK_STATES: JobState[] = [
-  'queued_baseline',
-  'queued_verify',
-  'running_baseline',
-  'running_verify',
-  'running_structural',
-];
+const STUCK_STATES: JobState[] = [...RUNNING_STATES];
 
 /**
  * Bebaskan job yang lock-nya kedaluwarsa.

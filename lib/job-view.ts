@@ -2,10 +2,11 @@ import { HASH_MISMATCH_ERROR } from './deliverable-lock';
 import { formatTBNB, shortAddr } from './format';
 import { ledgerBalance } from './ledger';
 import { decide, hitPerQuery } from './scoring';
-import type { UiStatus } from './status';
+import { isStaleLock, type UiStatus } from './status';
 import type { ActivityEntry, Job, OracleRun } from './types';
 import { verdictHash, type Verdict } from './verdict';
 import { deriveSubset, subsetSize } from './vrf';
+import type { VerifyResult } from './flows/verify';
 
 /*
  * Logika MURNI halaman detail kontrak (/jobs/[id]) — tanpa React, supaya
@@ -346,4 +347,76 @@ export function auditVerdict(
 export function decisionMath(v: Pick<Verdict, 'score' | 'of' | 'target' | 'n'>) {
   const lhs = v.score * v.n, rhs = v.target * v.of, floor = rhs - 2 * v.n;
   return { lhs, rhs, floor };
+}
+
+// ---------------------------------------------------------------------
+// Aksi yang memicu kerja Oracle (Fase 8) — keputusan murni, diuji di check-pure
+// ---------------------------------------------------------------------
+
+/** Aksi Oracle yang bisa dipicu dari halaman detail. Path-nya di components/job/OracleActions.tsx. */
+export type OracleAction = 'verify' | 'sync' | 'baseline';
+
+export interface OracleOffer {
+  kind: OracleAction;
+  label: string;
+  /** Kalimat penjelas di atas tombol; null = tombol cukup menjelaskan dirinya. */
+  why: string | null;
+}
+
+/**
+ * Setelah submitDeliverable, POST /api/sync/:id memicu konfirmasi dalam
+ * hitungan detik. Masih idle lewat dari ini = pemicunya tidak pernah
+ * sampai (tab ditutup, after() terpotong) → tawarkan konfirmasi ulang.
+ */
+export const CONFIRM_GRACE_MS = 2 * 60_000;
+
+/**
+ * Tombol Oracle apa yang ditawarkan untuk keadaan job ini — atau null.
+ *
+ * Yang macet (lock > STALE_LOCK_MS) ditawari coba-lagi: server mengambil
+ * alih lock-nya (acquireLock), jadi tombolnya benar-benar bekerja tanpa
+ * menunggu cron. Konten yang tidak cocok dengan hash on-chain TIDAK
+ * ditawari: mengulang konfirmasi pasti gagal lagi — yang dibutuhkan
+ * adalah kiriman ulang konten yang ditandatangani.
+ */
+export function oracleOffer(job: Job, ui: UiStatus, now: number | null): OracleOffer | null {
+  const stale = isStaleLock(job, now);
+  switch (ui) {
+    case 'baseline_failed':
+      return { kind: 'baseline', label: 'Ukur ulang baseline', why: null };
+    case 'baseline_running':
+      return stale ? { kind: 'baseline', label: 'Ukur ulang baseline', why: 'Pengukuran baseline berhenti di tengah jalan — lebih dari 3 menit tanpa kemajuan.' } : null;
+    case 'submitted_pending': {
+      if (stale) return { kind: 'sync', label: 'Konfirmasi ulang', why: 'Konfirmasi struktural berhenti di tengah jalan — lebih dari 3 menit tanpa kemajuan.' };
+      if (job.job_state !== 'idle' || now === null) return null;
+      const since = Date.parse(job.deliverable_submitted_at ?? job.job_state_at);
+      return Number.isFinite(since) && now - since > CONFIRM_GRACE_MS
+        ? { kind: 'sync', label: 'Konfirmasi ulang', why: 'Konfirmasi struktural belum juga dimulai. Hash konten sudah aman di blockchain.' }
+        : null;
+    }
+    case 'structural_failed':
+      return isHashMismatch(job) ? null : { kind: 'sync', label: 'Coba konfirmasi lagi', why: null };
+    case 'awaiting_verify':
+      return job.job_state === 'error'
+        ? { kind: 'verify', label: 'Coba verifikasi lagi', why: null }
+        : { kind: 'verify', label: 'Verifikasi sekarang', why: null };
+    case 'verifying':
+      return stale ? { kind: 'verify', label: 'Lanjutkan verifikasi', why: 'Verifikasi berhenti di tengah jalan — lebih dari 3 menit tanpa kemajuan. Melanjutkan tidak mengulang pembayaran: status kontrak diperiksa dulu.' } : null;
+    default:
+      return null;
+  }
+}
+
+/** Kalimat hasil POST /api/jobs/:id/verify. */
+export function verifyOutcome(r: Pick<VerifyResult, 'score' | 'of' | 'decision' | 'settledOnChain' | 'alreadySettled' | 'resumedSettlement'>): { tone: 'ok' | 'warn'; text: string } {
+  const skor = `Skor ${r.score} dari ${r.of} pertanyaan acak`;
+  const base =
+    r.decision === 'release' ? `${skor} — target tercapai. Sisa budget + bond cair ke freelancer.`
+    : r.decision === 'refund' ? `${skor} — target tidak tercapai. Sisa budget + bond kembali ke client.`
+    : `${skor} jatuh di zona abu — keputusan diteruskan ke arbiter.`;
+  const notes: string[] = [];
+  if (r.resumedSettlement) notes.push('Verdict yang sama dipakai ulang; hanya settlement yang dilanjutkan.');
+  if (r.alreadySettled) notes.push('Settlement sudah terjadi sebelumnya — tidak ada transaksi baru.');
+  if (!r.settledOnChain) notes.push('Mode pengembangan: tidak ada transaksi on-chain.');
+  return { tone: r.decision === 'dispute' ? 'warn' : 'ok', text: [base, ...notes].join(' ') };
 }

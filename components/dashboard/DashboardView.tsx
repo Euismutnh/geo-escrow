@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState, type ReactNode } from 'react';
+import { ArbiterAdmin } from '@/components/admin/ArbiterAdmin';
 import { JobGrid } from '@/components/jobs/JobCard';
 import { ButtonLink } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -244,6 +245,7 @@ function RecentJobs() {
 export function DashboardView() {
   return (
     <>
+      <ArbiterAdmin />
       <div className="bal-grid">
         <WalletCard />
         <LockedHero />

@@ -12,12 +12,13 @@ import { verdictHash, type Verdict } from '../lib/verdict';
 import { formatTBNB, formatTBNBShort, toWei, shortAddr, formatTime, formatRelative } from '../lib/format';
 import { ledgerBalance, ledgerSeries, LEDGER_IN, LEDGER_OUT, LEDGER_NEUTRAL, type LedgerRow } from '../lib/ledger';
 import { readFileSync } from 'node:fs';
-import { deriveUiStatus, UI_STATUS_META, type UiStatus, type UiStatusInput } from '../lib/status';
+import { deriveUiStatus, isLive, isStaleLock, STALE_LOCK_MS, UI_STATUS_META, type UiStatus, type UiStatusInput } from '../lib/status';
+import type { VerifyResult } from '../lib/flows/verify';
 import { verifyCronSecret, parseJobId } from '../lib/validate';
 import { ApiError, internalError, publicErrorMessage } from '../lib/http';
 import { OracleError } from '../lib/oracle/types';
 import {
-  auditVerdict, decisionMath, fundsLabel, heldInContract, isAcceptExpired, isHashMismatch, isVerifyStuck,
+  auditVerdict, CONFIRM_GRACE_MS, decisionMath, fundsLabel, heldInContract, isAcceptExpired, isHashMismatch, isVerifyStuck, oracleOffer, verifyOutcome,
   lastActivity, phaseHits, rejectedSubmission, timeline, type TimeCtx,
 } from '../lib/job-view';
 import type { ActivityEntry, Job } from '../lib/types';
@@ -40,6 +41,7 @@ import { acceptGuard, postDeliverable, submitGuard } from '../lib/deliverable';
 import { checkStructural } from '../lib/structural';
 import { contentAllowed, HASH_MISMATCH_ERROR, isEmptyHash, lockedDeliverableHash } from '../lib/deliverable-lock';
 import { keBarisActivity, settledByDari, type LogTerurai } from '../lib/indexer';
+import { checkNewArbiter } from '../lib/admin';
 
 let pass = 0;
 let fail = 0;
@@ -804,6 +806,88 @@ section('ledger - rincian per wallet');
     { type: 'structural_release', amount_wei: null, to_addr: w },
   ];
   eq('receivedBy: hanya baris OUT ke wallet itu, bond tidak dua kali', receivedBy(rows, W).toString(), '750');
+}
+
+// ---------------------------------------------------------
+section('Fase 8 - lock macet, polling, tombol aksi Oracle');
+{
+  const NOW = Date.parse('2026-09-26T15:00:00Z');
+  const ago = (ms: number) => new Date(NOW - ms).toISOString();
+  const J = (o: Partial<Job>) => ({
+    status: 'Verifying', job_state: 'idle', job_state_at: ago(0), baseline_score: 1, settled_by: null,
+    last_error: null, deliverable_submitted_at: null, ...o,
+  }) as Job;
+  const ui = (j: Job) => deriveUiStatus(j);
+  const offer = (j: Job, now: number | null = NOW) => oracleOffer(j, ui(j), now);
+
+  // isStaleLock / isLive
+  check('running_verify 4 mnt = macet', isStaleLock(J({ job_state: 'running_verify', job_state_at: ago(STALE_LOCK_MS + 60_000) }), NOW));
+  check('running_verify 1 mnt = belum macet', !isStaleLock(J({ job_state: 'running_verify', job_state_at: ago(60_000) }), NOW));
+  check('idle tidak pernah macet', !isStaleLock(J({ job_state: 'idle', job_state_at: ago(9e9) }), NOW));
+  check('tanpa jam (render server) -> tidak menebak', !isStaleLock(J({ job_state: 'running_verify', job_state_at: ago(9e9) }), null));
+  check('verifying berjalan -> di-polling', isLive(J({ job_state: 'running_verify', job_state_at: ago(10_000) }), NOW));
+  check('verifying macet -> TIDAK di-polling (menunggu tombol)', !isLive(J({ job_state: 'running_verify', job_state_at: ago(STALE_LOCK_MS + 1) }), NOW));
+  check('awaiting_verify -> tidak di-polling', !isLive(J({}), NOW));
+  check('settle -> tidak di-polling', !isLive(J({ status: 'ReleasedFull' }), NOW));
+  check('submitted_pending -> di-polling', isLive(J({ status: 'Submitted' }), NOW));
+  check('baseline_running -> di-polling', isLive(J({ status: 'Open', baseline_score: null, job_state: 'running_baseline', job_state_at: ago(5_000) }), NOW));
+
+  // oracleOffer
+  eq('awaiting_verify -> Verifikasi sekarang', offer(J({}))?.label, 'Verifikasi sekarang');
+  eq('awaiting_verify + error (settlement gagal) -> coba lagi, jalur yang SAMA', [offer(J({ job_state: 'error' }))?.kind, offer(J({ job_state: 'error' }))?.label], ['verify', 'Coba verifikasi lagi']);
+  eq('verifying berjalan -> tanpa tombol', offer(J({ job_state: 'running_verify', job_state_at: ago(30_000) })), null);
+  eq('verifying macet -> Lanjutkan verifikasi', offer(J({ job_state: 'running_verify', job_state_at: ago(STALE_LOCK_MS + 1) }))?.label, 'Lanjutkan verifikasi');
+  eq('baseline gagal -> ukur ulang', offer(J({ status: 'Open', baseline_score: null, job_state: 'error' }))?.kind, 'baseline');
+  eq('baseline berjalan -> tanpa tombol', offer(J({ status: 'Open', baseline_score: null, job_state: 'running_baseline', job_state_at: ago(20_000) })), null);
+  eq('baseline macet -> ukur ulang', offer(J({ status: 'Open', baseline_score: null, job_state: 'running_baseline', job_state_at: ago(STALE_LOCK_MS + 1) }))?.kind, 'baseline');
+  eq('submitted baru saja -> tunggu, tanpa tombol', offer(J({ status: 'Submitted', deliverable_submitted_at: ago(30_000) })), null);
+  eq('submitted idle > 2 mnt -> konfirmasi ulang lewat sync', offer(J({ status: 'Submitted', deliverable_submitted_at: ago(CONFIRM_GRACE_MS + 1) }))?.kind, 'sync');
+  eq('konfirmasi berjalan -> tanpa tombol', offer(J({ status: 'Submitted', job_state: 'running_structural', job_state_at: ago(20_000), deliverable_submitted_at: ago(9e6) })), null);
+  eq('konfirmasi macet -> konfirmasi ulang', offer(J({ status: 'Submitted', job_state: 'running_structural', job_state_at: ago(STALE_LOCK_MS + 1) }))?.kind, 'sync');
+  eq('structural gagal sistem -> coba lagi', offer(J({ status: 'Submitted', job_state: 'error', last_error: 'RPC putus' }))?.kind, 'sync');
+  eq('structural gagal hash tidak cocok -> TANPA coba lagi (pasti gagal lagi)', offer(J({ status: 'Submitted', job_state: 'error', last_error: HASH_MISMATCH_ERROR })), null);
+  eq('open / in_progress / settle -> tanpa tombol Oracle', [offer(J({ status: 'Open' })), offer(J({ status: 'Accepted' })), offer(J({ status: 'Refunded' }))], [null, null, null]);
+
+  // verifyOutcome
+  const vo = (o: Partial<VerifyResult>) => verifyOutcome({ score: 3, of: 4, decision: 'release', settledOnChain: true, alreadySettled: false, resumedSettlement: false, ...o });
+  check('release: cair ke freelancer, sisa + bond', vo({}).text.includes('cair ke freelancer') && vo({}).text.includes('bond') && vo({}).tone === 'ok');
+  check('refund: kembali ke client', vo({ decision: 'refund', score: 0 }).text.includes('kembali ke client'));
+  check('dispute: zona abu -> arbiter, nada peringatan', vo({ decision: 'dispute' }).text.includes('arbiter') && vo({ decision: 'dispute' }).tone === 'warn');
+  check('alreadySettled disebut (tidak ada transaksi baru)', vo({ alreadySettled: true }).text.includes('tidak ada transaksi baru'));
+  check('mode dev disebut', vo({ settledOnChain: false }).text.includes('Mode pengembangan'));
+}
+
+// ---------------------------------------------------------
+section('Fase 8 - admin arbiter & pagar fungsi owner');
+{
+  const OWNER = '0x8766d055bB79B511FCC34Bd1573ce612dFa4057D';
+  const ORACLE = '0xA87D9c3304B13a0325Ae91A05d2322f4C8f3a139';
+  const OLD = '0xd1ff61def4D7c6dB938A4501f460b5176fcbCd78';
+  const NEW = '0xdCe01c269c513246b7dCC06F1Ae84de022048Df7';
+  const ctx = { current: OLD, owner: OWNER, oracle: ORACLE, me: OWNER };
+  const ca = (s: string) => checkNewArbiter(s, ctx);
+  eq('alamat sah -> ok, dinormalisasi ke checksum', ca(NEW.toLowerCase()), { ok: true, address: NEW });
+  eq('spasi di tepi diabaikan', ca(`  ${NEW}  `).ok, true);
+  eq('kosong -> ditolak', ca('').ok, false);
+  eq('bukan alamat (private key 64 hex) -> ditolak', ca(`0x${'ab'.repeat(32)}`).ok, false);
+  // checksum salah: ganti huruf besar/kecil satu karakter
+  const typo = NEW.replace('dCe0', 'dce0');
+  eq('checksum salah (huruf campuran) -> ditolak', ca(typo).ok, false);
+  eq('alamat nol -> ditolak', ca(`0x${'0'.repeat(40)}`).ok, false);
+  eq('sama dengan arbiter sekarang -> ditolak', ca(OLD).ok, false);
+  eq('owner/client sebagai arbiter -> ditolak (panel juri tak pernah muncul)', ca(OWNER.toLowerCase()).ok, false);
+  eq('Oracle sebagai arbiter -> ditolak', ca(ORACLE).ok, false);
+
+  // PAGAR: fungsi owner yang berbahaya tidak boleh bisa dikirim dari FE.
+  const txSrc = readFileSync(new URL('../lib/tx.ts', import.meta.url), 'utf8');
+  const u = txSrc.match(/export type UserWriteFn =([\s\S]*?);/);
+  const fns = u ? [...u[1].matchAll(/'([A-Za-z]+)'/g)].map((m) => m[1]) : [];
+  check('UserWriteFn terbaca', fns.length >= 7);
+  for (const bahaya of ['renounceOwnership', 'transferOwnership', 'setOracle', 'setVerifyTimeout', 'confirmStructural', 'settleRelease', 'settleRefund', 'raiseDispute', 'rejectStructural']) {
+    check(`UserWriteFn TIDAK memuat ${bahaya}`, !fns.includes(bahaya));
+  }
+  const setArb = geoEscrowAbi.find((x) => x.type === 'function' && x.name === 'setArbiter') as { inputs: { type: string }[]; stateMutability: string } | undefined;
+  check('ABI setArbiter(address) nonpayable', !!setArb && setArb.inputs.length === 1 && setArb.inputs[0].type === 'address' && setArb.stateMutability === 'nonpayable');
 }
 
 // ---------------------------------------------------------

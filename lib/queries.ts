@@ -1,7 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
+import { useIsMutating, useQuery } from '@tanstack/react-query';
 import { api } from './api';
 import type { ChainInfo } from './chain-server';
-import type { MarketFilter } from './status';
+import { isLive, type MarketFilter } from './status';
 import type { ActivityEntry, Job, OracleRun } from './types';
 import type { Verdict } from './verdict';
 
@@ -105,19 +105,42 @@ export interface VerdictAudit {
   chainEnabled: boolean;
 }
 
+/** Jeda polling halaman detail (blueprint Fase 9). */
+export const POLL_MS = 4_000;
+
+/**
+ * Kunci mutasi untuk aksi yang MEMICU kerja Oracle di server (verifikasi,
+ * sync/konfirmasi struktural, ukur ulang baseline). useJob() mem-polling
+ * selama salah satunya berjalan: verifikasi bisa makan ~1 menit, dan status
+ * `verifying` + progres per pertanyaan harus terlihat selama itu.
+ */
+export type OracleActionKind = 'verify' | 'sync' | 'baseline';
+export const oracleActionKey = (kind: OracleActionKind, jobId: number) => ['oracle-action', kind, jobId] as const;
+
 /**
  * Satu request untuk seluruh halaman detail. Log Oracle per job juga dari
  * sini: GET /api/jobs/:id/oracle-log memanggil getRuns() yang SAMA, jadi
  * request kedua hanya akan mengambil data yang sudah ada.
  *
- * Fase 9 menambahkan refetchInterval di sini — satu tempat.
+ * POLLING (Fase 9, di satu tempat ini): tiap POLL_MS HANYA kalau
+ *   - status job hidup (baseline_running / submitted_pending / verifying)
+ *     dan prosesnya tidak macet — yang macet menunggu tombol coba-lagi,
+ *     bukan ditanya terus; atau
+ *   - aksi Oracle dari halaman ini sedang berjalan.
+ * Job yang sudah settle = nol permintaan berulang. Tab tersembunyi juga
+ * berhenti: refetchIntervalInBackground bawaan react-query = false.
  */
 export function useJob(jobId: number) {
+  const acting = useIsMutating({ predicate: (m) => m.options.mutationKey?.[0] === 'oracle-action' && m.options.mutationKey?.[2] === jobId }) > 0;
   return useQuery({
     queryKey: ['job', jobId],
     queryFn: async () => {
       const r = await api<{ job: Job; runs?: OracleRun[]; activity?: ActivityEntry[] }>(`/api/jobs/${jobId}?include=runs,activity`);
       return { job: r.job, runs: r.runs ?? [], activity: r.activity ?? [] } satisfies JobDetail;
+    },
+    refetchInterval: (q) => {
+      const job = q.state.data?.job;
+      return acting || (job && isLive(job, Date.now())) ? POLL_MS : false;
     },
   });
 }

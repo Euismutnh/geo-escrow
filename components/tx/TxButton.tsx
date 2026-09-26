@@ -12,6 +12,7 @@ import { useWalletUi } from '@/components/wallet/WalletUi';
 import { geoEscrowAbi } from '@/lib/abi';
 import { apiPost, ApiClientError } from '@/lib/api';
 import { isTxHash, shortHash, txUrl } from '@/lib/explorer';
+import { invalidateAfterChange } from '@/lib/invalidate';
 import { useChainInfo } from '@/lib/queries';
 import {
   BUSY_LABEL, classifyTxError, isBusy, stepIndex, SYNC_FAILED_MSG, syncDecision, TX_MSG, TX_STEPS,
@@ -140,17 +141,7 @@ export function TxButton<F extends UserWriteFn>(p: TxButtonProps<F>) {
   const cls = buttonClass({ variant: p.variant ?? 'primary', block: p.block });
   const wrap = (children: ReactNode, note?: ReactNode) => <div className={p.block ? 'txw block' : 'txw'}>{children}{note}</div>;
 
-  const invalidate = (jobId: number | null) => {
-    if (jobId !== null) {
-      qc.invalidateQueries({ queryKey: ['job', jobId] });
-      qc.invalidateQueries({ queryKey: ['verdict', jobId] });
-    }
-    for (const k of ['jobs', 'stats', 'activity', 'oracle-log']) qc.invalidateQueries({ queryKey: [k] });
-    // Query wagmi: saldo wallet & kontrak, dan pembacaan kontrak (getJob di
-    // panel audit, requiredBond). Kunci diperiksa di @wagmi/core/query:
-    // ['balance', …] dan ['readContract', …].
-    qc.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'balance' || q.queryKey[0] === 'readContract' });
-  };
+  const invalidate = (jobId: number | null) => invalidateAfterChange(qc, jobId);
 
   /** Langkah 4–6 dengan receipt yang sudah SUKSES. */
   const afterSuccess = async (receipt: TransactionReceipt, from: 'after' | 'sync', knownJobId: number | null) => {

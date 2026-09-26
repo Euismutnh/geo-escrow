@@ -132,7 +132,7 @@ function Detail({ data, tab }: { data: JobDetail; tab: DetailTab }) {
             <TimelineCard steps={tl.steps} reached={tl.reached} />
             <QueryPoolCard job={job} runs={runs} />
             <WorkCard job={job} ui={ui} runs={runs} activity={activity} time={time} rel={rel} chain={chain} />
-            {ui === 'dispute' && <JuryCard job={job} arbiter={chain?.arbiter ?? null} />}
+            {ui === 'dispute' && <JuryCard job={job} arbiter={chain?.arbiter ?? null} rel={rel} />}
           </div>
           <div className="stack detail-r">
             <LedgerCard job={job} ui={ui} activity={activity} chain={chain} />
