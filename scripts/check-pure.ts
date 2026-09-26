@@ -6,19 +6,19 @@
 import { decide, hitPerQuery, type RunHit } from '../lib/scoring';
 import { parseJobIdParam, firstParam, parsePageParam, MAX_PAGE } from '../lib/route-params';
 import { api, apiPost, ApiClientError } from '../lib/api';
-import { subsetSize, deriveSubset } from '../lib/vrf';
+import { subsetSize, deriveSubset, effectiveSeedV2 } from '../lib/vrf';
 import { queryPoolHash, canonicalQueryPool, contentHash } from '../lib/hash';
-import { verdictHash, type Verdict } from '../lib/verdict';
+import { canonicalVerdict, recomputeSubset, verdictHash, type Verdict, type VerdictV2 } from '../lib/verdict';
 import { formatTBNB, formatTBNBShort, toWei, shortAddr, formatTime, formatRelative } from '../lib/format';
 import { ledgerBalance, ledgerSeries, LEDGER_IN, LEDGER_OUT, LEDGER_NEUTRAL, type LedgerRow } from '../lib/ledger';
 import { readFileSync } from 'node:fs';
-import { deriveUiStatus, isLive, isStaleLock, STALE_LOCK_MS, UI_STATUS_META, type UiStatus, type UiStatusInput } from '../lib/status';
+import { deriveUiStatus, isLive, isStaleLock, POLL_FAST_MS, POLL_SLOW_MS, pollIntervalFor, STALE_LOCK_MS, UI_STATUS_META, type UiStatus, type UiStatusInput } from '../lib/status';
 import type { VerifyResult } from '../lib/flows/verify';
 import { verifyCronSecret, parseJobId } from '../lib/validate';
 import { ApiError, internalError, publicErrorMessage } from '../lib/http';
 import { OracleError } from '../lib/oracle/types';
 import {
-  auditVerdict, CONFIRM_GRACE_MS, decisionMath, fundsLabel, heldInContract, isAcceptExpired, isHashMismatch, isVerifyStuck, oracleOffer, verifyOutcome,
+  auditVerdict, CONFIRM_GRACE_MS, confirmTxValid, decisionMath, fundsLabel, heldInContract, isAcceptExpired, isHashMismatch, isVerifyStuck, oracleOffer, targetNotAboveBaseline, verifyOutcome,
   lastActivity, phaseHits, rejectedSubmission, timeline, type TimeCtx,
 } from '../lib/job-view';
 import type { ActivityEntry, Job } from '../lib/types';
@@ -32,16 +32,17 @@ import {
   stepIndex, syncDecision, TX_MSG,
 } from '../lib/tx';
 import { lockedFor, receivedBy } from '../lib/ledger';
-import { encodeAbiParameters, encodeEventTopics, type Log } from 'viem';
-import { checkDraft, LIMITS, parseBudgetTbnb, parseQueries, toLocalInput, type Draft } from '../lib/job-input';
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, keccak256, toHex, type Log } from 'viem';
+import { checkDraft, FIELD_LABEL, FIELD_ORDER, firstInvalid, LIMITS, MIN_BUDGET_WEI, parseBudgetTbnb, parseQueries, toLocalInput, type Draft } from '../lib/job-input';
 import { jobIdFromReceipt, makeSnapshot, metadataBody, parsePending, parsePendingAll, saveJobMetadata } from '../lib/create-job';
 import { requireFutureDate, requireJobId, requireQueryPool, requireText, requireWei } from '../lib/validate-input';
 import { requireAddress } from '../lib/validate';
 import { acceptGuard, postDeliverable, submitGuard } from '../lib/deliverable';
 import { checkStructural } from '../lib/structural';
-import { contentAllowed, HASH_MISMATCH_ERROR, isEmptyHash, lockedDeliverableHash } from '../lib/deliverable-lock';
-import { keBarisActivity, settledByDari, type LogTerurai } from '../lib/indexer';
+import { contentAllowed, HASH_MISMATCH_ERROR, isEmptyHash, lockedDeliverableHash, SIGNED_CONTENT_GRACE_MS, SIGNED_CONTENT_MISSING_REASON, signedContentGraceExpired } from '../lib/deliverable-lock';
+import { aktivitasWajib, keBarisActivity, settledByDari, type LogTerurai } from '../lib/indexer';
 import { checkNewArbiter } from '../lib/admin';
+import { env } from '../lib/env';
 
 let pass = 0;
 let fail = 0;
@@ -500,11 +501,19 @@ section('job-view - perjalanan kontrak (13 status UI)');
     'Kiriman sebelumnya ditolak · menunggu kiriman ulang');
   eq('rejectedSubmission hanya saat in_progress', rejectedSubmission('awaiting_verify', [act('structural_rejected', 3)]), null);
 
-  const ver = { ...base, status: 'Verifying' as const, job_state: 'idle' as const, baseline_score: 1 };
-  check('macet: structural_release > timeout lalu', isVerifyStuck(ver, [act('structural_release', 5, '2026-08-01T00:00:00Z')], T));
-  check('belum macet: masih di dalam timeout', !isVerifyStuck(ver, [act('structural_release', 5, '2026-09-04T00:00:00Z')], T));
-  check('timeout belum diketahui -> tidak macet', !isVerifyStuck(ver, [act('structural_release', 5, '2026-08-01T00:00:00Z')], { ...T, verifyTimeoutSec: null }));
-  check('sedang running_verify -> tidak macet', !isVerifyStuck({ ...ver, job_state: 'running_verify' }, [act('structural_release', 5, '2026-08-01T00:00:00Z')], T));
+  // Syarat kontrak escalateStuckJob: Submitted|Verifying dan now > submittedAt + verifyTimeout.
+  const ver = { ...base, status: 'Verifying' as const, job_state: 'idle' as const, baseline_score: 1, deliverable_submitted_at: '2026-08-01T00:00:00Z', job_state_at: '2026-08-01T00:00:00Z' };
+  check('macet: submittedAt > timeout lalu', isVerifyStuck(ver, T));
+  check('belum macet: masih di dalam timeout', !isVerifyStuck({ ...ver, deliverable_submitted_at: '2026-09-04T00:00:00Z' }, T));
+  check('tepat di batas -> belum (kontrak memakai >, bukan >=)', !isVerifyStuck({ ...ver, deliverable_submitted_at: new Date(T.now! - 7 * 86400_000).toISOString() }, T));
+  check('timeout belum diketahui -> tidak macet', !isVerifyStuck(ver, { ...T, verifyTimeoutSec: null }));
+  check('tanpa waktu submit -> tidak macet (jangan menebak)', !isVerifyStuck({ ...ver, deliverable_submitted_at: null }, T));
+  check('S-26: macet di SUBMITTED juga bisa dieskalasi', isVerifyStuck({ ...ver, status: 'Submitted' }, T));
+  check('status lain (Accepted/Disputed) -> tidak', !isVerifyStuck({ ...ver, status: 'Accepted' }, T) && !isVerifyStuck({ ...ver, status: 'Disputed' }, T));
+  check('Oracle sedang verifikasi (lock baru) -> tidak diganggu', !isVerifyStuck({ ...ver, job_state: 'running_verify', job_state_at: new Date(T.now! - 30_000).toISOString() }, T));
+  check('lock verifikasi macet -> boleh eskalasi', isVerifyStuck({ ...ver, job_state: 'running_verify', job_state_at: '2026-08-01T00:00:00Z' }, T));
+  check('timeline: macet di Submitted disebut di langkah cek struktural',
+    timeline({ ...ver, status: 'Submitted' }, 'submitted_pending', [], T).steps[4].sub.startsWith('Macet'));
 
   const done = timeline({ ...base, status: 'ReleasedFull', job_state: 'idle', baseline_score: 1, baseline_at: '2026-09-01T01:00:00Z', freelancer_addr: '0xf1', settled_by: 'oracle' }, 'settled_release',
     [act('deposit', 1), act('bond_lock', 2), act('final_release', 9), act('structural_release', 5)], T).steps;
@@ -536,19 +545,23 @@ section('job-view - audit verdict dihitung ulang di browser');
   const verdict: Verdict = { v: 'GEOv1', jobId: 3, brand: 'Kopi Rasa', seed, subset, hits, score, of: k, target: 3, n, multiEngine: false, decision: decide({ score, of: k, target: 3, n }) };
   const vh = verdictHash(verdict);
   const runs = subset.map((qi, i) => ({ id: `r${i}`, job_id: 3, phase: 'verification' as const, query_index: qi, query: 'q', engine: 'mock-a', model: null, hit: hitOf(qi), answer: '', latency_ms: null, created_at: '2026-09-01T00:00:00Z' }));
-  const job = { verdict_hash: vh, verification_subset: subset, multi_engine: false } as Job;
-  const on = { onChain: vh, chainEnabled: true };
+  const queries = ['q1', 'q2', 'q3', 'q4', 'q5'];
+  const content = 'Konten Kopi Rasa yang sudah dioptimasi untuk jawaban AI.';
+  const job = { job_id: 3, brand: 'Kopi Rasa', target_count: 3, queries, multi_engine: false, deliverable_content: content, verdict_hash: vh, verification_subset: subset } as Job;
+  const pool = queryPoolHash({ brand: 'Kopi Rasa', queries, targetCount: 3, multiEngine: false });
+  const on = { onChain: vh, chainEnabled: true, seed, queryPoolHash: pool, deliverableHash: contentHash(content) };
   const res = (j: Job, v: Verdict, r: typeof runs, c: Parameters<typeof auditVerdict>[3]) => {
     const a = auditVerdict(j, v, r, c);
     return a.overall + ':' + a.checks.map((x) => x.result).join('');
   };
 
-  eq('verdict jujur, chain aktif -> semua lolos', res(job, verdict, runs, on), 'y:yyyyy');
-  eq('chain nonaktif -> dilewati, bukan gagal', res(job, verdict, runs, { onChain: null, chainEnabled: false }), 's:yyyys');
-  eq('kontrak menyimpan hash nol -> gagal', res(job, verdict, runs, { onChain: `0x${'0'.repeat(64)}`, chainEnabled: true }), 'n:yyyyn');
-  eq('masih memuat kontrak -> dilewati', res(job, verdict, runs, 'loading'), 's:yyyys');
-  eq('kontrak tak terbaca -> dilewati', res(job, verdict, runs, 'error'), 's:yyyys');
-  eq('hash on-chain beda -> gagal', res(job, verdict, runs, { onChain: `0x${'1'.repeat(64)}`, chainEnabled: true }), 'n:yyyyn');
+  // urutan: subset, hit, keputusan, hash DB, hash chain, seed, parameter, komitmen
+  eq('verdict jujur, chain aktif -> semua lolos', res(job, verdict, runs, on), 'y:yyyyyyyy');
+  eq('chain nonaktif -> dilewati, bukan gagal', res(job, verdict, runs, { onChain: null, chainEnabled: false }), 's:yyyyssys');
+  eq('kontrak menyimpan hash nol -> gagal', res(job, verdict, runs, { ...on, onChain: `0x${'0'.repeat(64)}` }), 'n:yyyynyyy');
+  eq('masih memuat kontrak -> dilewati', res(job, verdict, runs, 'loading'), 's:yyyyssys');
+  eq('kontrak tak terbaca -> dilewati', res(job, verdict, runs, 'error'), 's:yyyyssys');
+  eq('hash on-chain beda -> gagal', res(job, verdict, runs, { ...on, onChain: `0x${'1'.repeat(64)}` }), 'n:yyyynyyy');
 
   // Pemalsuan: tiap satu diubah, pemeriksaan yang tepat harus menangkapnya.
   const swapped = [...subset].reverse();
@@ -557,7 +570,72 @@ section('job-view - audit verdict dihitung ulang di browser');
   eq('skor digelembungkan -> hit (jumlah) gagal', res(job, { ...verdict, score: score + 1 }, runs, on)[3], 'n');
   eq('keputusan dibalik -> keputusan gagal', res(job, { ...verdict, decision: verdict.decision === 'release' ? 'refund' : 'release' }, runs, on)[4], 'n');
   eq('verdict diubah setelah di-hash -> hash database gagal', res(job, { ...verdict, brand: 'Kopi Lain' }, runs, on)[5], 'n');
-  eq('log tidak lengkap -> hit dilewati, bukan gagal', res(job, verdict, runs.slice(1), on), 's:ysyyy');
+  eq('log tidak lengkap -> hit dilewati, bukan gagal', res(job, verdict, runs.slice(1), on), 's:ysyyyyyy');
+  // S-12: verdict yang konsisten dengan DIRINYA SENDIRI tapi tidak terikat ke kontrak ini.
+  const seed2 = `0x${'cd'.repeat(32)}` as const;
+  const sub2 = deriveSubset(seed2, n, k);
+  const forged: Verdict = { ...verdict, seed: seed2, subset: sub2, hits: sub2.map((qi) => (hitOf(qi) ? 1 : 0)) };
+  forged.score = forged.hits.reduce((a, b) => a + b, 0);
+  forged.decision = decide({ score: forged.score, of: k, target: 3, n });
+  const forgedRuns = sub2.map((qi, i) => ({ ...runs[0], id: `f${i}`, query_index: qi, hit: hitOf(qi) }));
+  const fj = { ...job, verdict_hash: verdictHash(forged), verification_subset: sub2 };
+  const fr = res(fj, forged, forgedRuns, { ...on, onChain: verdictHash(forged) });
+  eq('S-12: seed karangan -> 5 cek lama LOLOS, tapi cek seed GAGAL', [fr.slice(2, 7), fr[7]], ['yyyyy', 'n']);
+  eq('S-12: target di verdict ≠ kontrak -> parameter gagal', res({ ...job, target_count: 2 }, verdict, runs, on)[8], 'n');
+  eq('S-12: jumlah pertanyaan ≠ kontrak -> parameter gagal', res({ ...job, queries: queries.slice(0, 4) }, verdict, runs, on)[8], 'n');
+  eq('S-12: pertanyaan ≠ komitmen on-chain -> komitmen gagal', res(job, verdict, runs, { ...on, queryPoolHash: `0x${'11'.repeat(32)}` })[9], 'n');
+  eq('S-12: konten yang diukur ≠ hash ditandatangani -> komitmen gagal', res({ ...job, deliverable_content: 'konten lain' }, verdict, runs, on)[9], 'n');
+  eq('S-12: seed on-chain nol -> seed gagal', res(job, verdict, runs, { ...on, seed: `0x${'0'.repeat(64)}` })[7], 'n');
+
+  // ---------------- GEOv2 (S-04): seed efektif + blok konfirmasi ----------------
+  const K = '0x41462F3092Ca66b7B3d9c8b20337793e2756cC46';
+  const B1 = `0x${'b1'.repeat(32)}`, B2 = `0x${'b2'.repeat(32)}`, TX = `0x${'7a'.repeat(32)}`;
+  const dh = contentHash(content);
+  const mk2 = (blockHash: string): VerdictV2 => {
+    const d: VerdictV2 = { v: 'GEOv2', jobId: 3, brand: 'Kopi Rasa', seed, n, of: k, target: 3, multiEngine: false, confirmTx: TX, confirmBlockHash: blockHash, deliverableHash: dh, subset: [], hits: [], score: 0, decision: 'dispute' };
+    d.subset = recomputeSubset(d);
+    d.hits = d.subset.map((qi) => (hitOf(qi) ? 1 : 0));
+    d.score = d.hits.reduce((a, b) => a + b, 0);
+    d.decision = decide({ score: d.score, of: k, target: 3, n });
+    return d;
+  };
+  const v2 = mk2(B1);
+  const runs2 = v2.subset.map((qi, i) => ({ ...runs[0], id: `v${i}`, query_index: qi, hit: hitOf(qi) }));
+  const job2 = { ...job, verdict_hash: verdictHash(v2), verification_subset: v2.subset };
+  const input = encodeFunctionData({ abi: geoEscrowAbi, functionName: 'confirmStructural', args: [3n] });
+  const txOk = { to: K, input, blockHash: B1, status: 'success' as const };
+  const on2 = { ...on, onChain: verdictHash(v2), contract: K, confirmTx: txOk };
+  eq('GEOv2 jujur -> semua lolos', res(job2, v2, runs2, on2), 'y:yyyyyyyy');
+  check('GEOv2: kanonik v1 TIDAK berubah (hash job 0 & 1 tersimpan permanen di kontrak)', !canonicalVerdict(verdict).includes('GEOv2') && canonicalVerdict(verdict).split('\n').length === 12);
+  check('GEOv2: kanonik = 12 baris v1 + confirmTx, blockHash, deliverableHash', canonicalVerdict(v2).split('\n').length === 15 && canonicalVerdict(v2).startsWith('GEOv2\n'));
+  eq('GEOv2: heksa huruf besar/kecil -> hash sama', verdictHash({ ...v2, confirmBlockHash: B1.toUpperCase().replace('0X', '0x') }), verdictHash(v2));
+  // Oracle memilih blok LAIN (subset lain) — konsisten dengan dirinya sendiri, tapi blok bukan blok konfirmasi.
+  const v2b = mk2(B2);
+  const runs2b = v2b.subset.map((qi, i) => ({ ...runs[0], id: `w${i}`, query_index: qi, hit: hitOf(qi) }));
+  const r2b = res({ ...job, verdict_hash: verdictHash(v2b), verification_subset: v2b.subset }, v2b, runs2b, { ...on2, onChain: verdictHash(v2b) });
+  eq('GEOv2: blok undian dipilih sendiri -> cek lama lolos, cek seed & blok GAGAL', [r2b.slice(2, 7), r2b[7]], ['yyyyy', 'n']);
+  eq('GEOv2: tx konfirmasi REVERT -> gagal (Oracle bisa memilih blok lewat tx gagal)', res(job2, v2, runs2, { ...on2, confirmTx: { ...txOk, status: 'reverted' } })[7], 'n');
+  eq('GEOv2: tx ke kontrak lain -> gagal', res(job2, v2, runs2, { ...on2, confirmTx: { ...txOk, to: '0x0000000000000000000000000000000000000009' } })[7], 'n');
+  const inputLain = encodeFunctionData({ abi: geoEscrowAbi, functionName: 'confirmStructural', args: [4n] });
+  eq('GEOv2: tx confirmStructural job LAIN -> gagal', res(job2, v2, runs2, { ...on2, confirmTx: { ...txOk, input: inputLain } })[7], 'n');
+  eq('GEOv2: tx tidak terbaca (dipangkas RPC) -> dilewati, bukan lolos', res(job2, v2, runs2, { ...on2, confirmTx: null })[7], 's');
+  eq('GEOv2: receipt tidak terbaca -> dilewati', res(job2, v2, runs2, { ...on2, confirmTx: { ...txOk, status: null } })[7], 's');
+  eq('GEOv2: hash konten di verdict ≠ on-chain -> komitmen gagal', res(job2, { ...v2, deliverableHash: `0x${'dd'.repeat(32)}` }, runs2, on2)[9], 'n');
+  check('confirmTxValid: tx sah', confirmTxValid(txOk, 3, K) && !confirmTxValid(txOk, 3, null));
+
+  // Seed efektif: seed kontrak KONSTAN (2) tapi subset tetap berbeda per blok.
+  const two = `0x${'0'.repeat(63)}2`;
+  const subsetsN6 = new Set([...Array(24)].map((_, i) => {
+    const bh = keccak256(toHex(`blok-${i}`));
+    return deriveSubset(effectiveSeedV2({ seed: two, confirmBlockHash: bh, jobId: 7, deliverableHash: dh }), 6, subsetSize(6)).join(',');
+  }));
+  check(`S-04: seed kontrak konstan, 24 blok berbeda -> subset bervariasi (${subsetsN6.size} macam untuk n=6)`, subsetsN6.size >= 3);
+  const e = (o: Partial<Parameters<typeof effectiveSeedV2>[0]>) => effectiveSeedV2({ seed: two, confirmBlockHash: B1, jobId: 7, deliverableHash: dh, ...o });
+  check('seed efektif berubah bila jobId / blok / konten berubah', new Set([e({}), e({ jobId: 8 }), e({ confirmBlockHash: B2 }), e({ deliverableHash: `0x${'ee'.repeat(32)}` })]).size === 4);
+  eq('seed efektif deterministik', e({}), e({}));
+  throws('seed efektif menolak blockHash bukan bytes32', () => e({ confirmBlockHash: '0x1234' }));
+  throws('seed efektif menolak jobId negatif', () => e({ jobId: -1 }));
+
   const dm = decisionMath({ score: 2, of: 3, target: 3, n: 5 });
   eq('decisionMath = sisi-sisi decide()', [dm.lhs, dm.rhs, dm.floor], [10, 9, -1]);
 }
@@ -832,6 +910,13 @@ section('Fase 8 - lock macet, polling, tombol aksi Oracle');
   check('submitted_pending -> di-polling', isLive(J({ status: 'Submitted' }), NOW));
   check('baseline_running -> di-polling', isLive(J({ status: 'Open', baseline_score: null, job_state: 'running_baseline', job_state_at: ago(5_000) }), NOW));
 
+  // pollIntervalFor — Fase 9 (daftar & detail)
+  eq('ada yang hidup -> cepat', pollIntervalFor([J({ status: 'ReleasedFull' }), J({ status: 'Submitted' })], NOW), POLL_FAST_MS);
+  eq('menunggu pihak lain (Open/Accepted/Verifying/Disputed) -> lambat', [J({ status: 'Open' }), J({ status: 'Accepted' }), J({ status: 'Verifying' }), J({ status: 'Disputed' })].map((j) => pollIntervalFor([j], NOW)), [POLL_SLOW_MS, POLL_SLOW_MS, POLL_SLOW_MS, POLL_SLOW_MS]);
+  eq('semua selesai -> berhenti (nol permintaan berulang)', pollIntervalFor([J({ status: 'ReleasedFull' }), J({ status: 'Refunded' })], NOW), false);
+  eq('daftar kosong -> berhenti', pollIntervalFor([], NOW), false);
+  eq('lock macet -> tidak cepat (menunggu tombol), tapi tetap lambat', pollIntervalFor([J({ job_state: 'running_verify', job_state_at: ago(STALE_LOCK_MS + 1) })], NOW), POLL_SLOW_MS);
+
   // oracleOffer
   eq('awaiting_verify -> Verifikasi sekarang', offer(J({}))?.label, 'Verifikasi sekarang');
   eq('awaiting_verify + error (settlement gagal) -> coba lagi, jalur yang SAMA', [offer(J({ job_state: 'error' }))?.kind, offer(J({ job_state: 'error' }))?.label], ['verify', 'Coba verifikasi lagi']);
@@ -855,6 +940,67 @@ section('Fase 8 - lock macet, polling, tombol aksi Oracle');
   check('dispute: zona abu -> arbiter, nada peringatan', vo({ decision: 'dispute' }).text.includes('arbiter') && vo({ decision: 'dispute' }).tone === 'warn');
   check('alreadySettled disebut (tidak ada transaksi baru)', vo({ alreadySettled: true }).text.includes('tidak ada transaksi baru'));
   check('mode dev disebut', vo({ settledOnChain: false }).text.includes('Mode pengembangan'));
+}
+
+// ---------------------------------------------------------
+section('Form buat kontrak - kesalahan menunjuk KOLOMNYA');
+{
+  eq('tanpa kesalahan -> null', firstInvalid({}), null);
+  eq('urutan layar, bukan urutan pemeriksaan: batas ambil & brand -> brand dulu', firstInvalid({ deadline: 'Minimal 1 jam', brand: 'Wajib' }), { field: 'brand', message: 'Wajib', others: 1 });
+  eq('satu kesalahan saja -> others 0', firstInvalid({ deadline: 'Minimal 1 jam dari sekarang.' })?.others, 0);
+  check('setiap kolom punya label', FIELD_ORDER.every((f) => !!FIELD_LABEL[f]));
+  // Kasus nyata 27-09: batas ambil diisi +1 jam, lalu waktu berjalan saat mengisi kolom lain.
+  const now = Date.parse('2026-09-27T10:00:00Z');
+  const d: Draft = { brand: 'Uji', brief: '', queries: 'a?\nb?\nc?', target: '1', budget: '0,0005', deadline: toLocalInput(now + 60 * 60_000), multiEngine: false };
+  const later = checkDraft(d, now + 5 * 60_000, null);
+  eq('batas ambil tepat +1 jam, 5 menit kemudian -> kolom "deadline" yang ditunjuk', firstInvalid(later.errors)?.field, 'deadline');
+}
+
+// ---------------------------------------------------------
+section('Fase 10 - S-22 konten bertanda tangan tidak datang -> dikembalikan');
+{
+  const now = Date.parse('2026-09-27T10:00:00Z');
+  const sec = (msAgo: number) => BigInt(Math.floor((now - msAgo) / 1000));
+  check('baru dikirim 10 menit -> masih ditunggu', !signedContentGraceExpired(sec(10 * 60_000), now));
+  check('lewat 2 jam -> dikembalikan', signedContentGraceExpired(sec(SIGNED_CONTENT_GRACE_MS + 60_000), now));
+  check('submittedAt 0 (belum/di-reset kontrak) -> tidak pernah', !signedContentGraceExpired(0n, now));
+  check('menerima number juga (dari kolom DB)', signedContentGraceExpired((now - SIGNED_CONTENT_GRACE_MS - 1000) / 1000, now));
+  check('alasan aman dipublikasi (tanpa isi konten) & ≤ 200 karakter (dipotong kontrak)', SIGNED_CONTENT_MISSING_REASON.length <= 200);
+}
+
+// ---------------------------------------------------------
+section('Fase 10 - S-09 budget minimum & kuota AI, S-19 mock di produksi');
+{
+  const now = Date.parse('2026-09-27T10:00:00Z');
+  const d = (budget: string): Draft => ({ brand: 'Uji', brief: '', queries: 'a?\nb?\nc?', target: '1', budget, deadline: toLocalInput(now + 2 * 3600_000), multiEngine: false });
+  eq('budget 0,0001 -> ditolak (di bawah minimum)', checkDraft(d('0,0001'), now, null).errors.budget, 'Budget minimum 0,0005 tBNB.');
+  eq('budget tepat 0,0005 -> diterima', checkDraft(d('0,0005'), now, null).errors.budget, undefined);
+  eq('MIN_BUDGET_WEI = 0,0005 tBNB', MIN_BUDGET_WEI.toString(), toWei('0.0005'));
+  const keep = { ...process.env };
+  try {
+    delete process.env.ORACLE_DAILY_CALL_LIMIT; delete process.env.ORACLE_CLIENT_DAILY_CALL_LIMIT;
+    eq('kuota default: global 400, per client 60', [env.oracleDailyCallLimit, env.oracleClientDailyCallLimit], [400, 60]);
+    process.env.ORACLE_DAILY_CALL_LIMIT = '50'; process.env.ORACLE_CLIENT_DAILY_CALL_LIMIT = 'abc';
+    eq('kuota dari env; nilai tidak sah -> default', [env.oracleDailyCallLimit, env.oracleClientDailyCallLimit], [50, 60]);
+    process.env.ORACLE_DAILY_CALL_LIMIT = '0';
+    eq('kuota 0 / negatif -> default (bukan mematikan pengaman)', env.oracleDailyCallLimit, 400);
+    delete process.env.ALLOW_MOCK_ORACLE_IN_PRODUCTION;
+    check('mock di produksi: default TIDAK diizinkan', !env.allowMockInProduction);
+  } finally {
+    for (const k of ['ORACLE_DAILY_CALL_LIMIT', 'ORACLE_CLIENT_DAILY_CALL_LIMIT', 'ALLOW_MOCK_ORACLE_IN_PRODUCTION']) {
+      if (keep[k] === undefined) delete process.env[k]; else process.env[k] = keep[k];
+    }
+  }
+}
+
+// ---------------------------------------------------------
+section('Fase 8 - K2: target tidak di atas baseline');
+{
+  check('job 0 nyata: target 1 = baseline 1 -> peringatan', targetNotAboveBaseline({ baseline_score: 1, target_count: 1 }));
+  check('target di bawah baseline -> peringatan', targetNotAboveBaseline({ baseline_score: 3, target_count: 2 }));
+  check('job 1 nyata: target 3 > baseline 1 -> tanpa peringatan', !targetNotAboveBaseline({ baseline_score: 1, target_count: 3 }));
+  check('baseline belum terukur -> tidak menebak', !targetNotAboveBaseline({ baseline_score: null, target_count: 1 }));
+  check('baseline 0, target 1 -> tanpa peringatan', !targetNotAboveBaseline({ baseline_score: 0, target_count: 1 }));
 }
 
 // ---------------------------------------------------------
@@ -907,6 +1053,12 @@ section('indexer - settled_by, catatan eskalasi, bond sebagai rincian (Tahap 0 a
   const slash = keBarisActivity(lg('BondSettled', { recipient: '0x0000000000000000000000000000000000000002', amount: 50n, slashed: true }), null);
   check('BondSettled -> bond_slash, dan NETRAL di ledger (S-16)', slash?.type === 'bond_slash' && (LEDGER_NEUTRAL as readonly string[]).includes('bond_slash'));
   check('bond_return juga netral, tidak lagi OUT', (LEDGER_NEUTRAL as readonly string[]).includes('bond_return') && !(LEDGER_OUT as readonly string[]).includes('bond_return'));
+  // Log tertinggal dari status (27-09, job 3: Settled tidak tercatat karena node RPC tertinggal).
+  eq('aktivitasWajib: ReleasedFull menuntut baris pencairan', aktivitasWajib(5), ['final_release', 'jury_release']);
+  eq('aktivitasWajib: Refunded menuntut refund ATAU reclaim', aktivitasWajib(6), ['final_refund', 'jury_refund', 'reclaim']);
+  eq('aktivitasWajib: Submitted tidak punya baris khas', aktivitasWajib(2), null);
+  check('aktivitasWajib: semua tipe yang dituntut adalah tipe ledger yang dikenal',
+    [0, 1, 2, 3, 4, 5, 6].every((st) => (aktivitasWajib(st) ?? []).every((t) => [...LEDGER_IN, ...LEDGER_OUT, ...LEDGER_NEUTRAL].includes(t as never))));
   check('isHashMismatch: cocok dengan pesan server', isHashMismatch({ last_error: HASH_MISMATCH_ERROR }));
   check('isHashMismatch: gangguan biasa -> false', !isHashMismatch({ last_error: 'Worker timeout -- silakan coba lagi' }) && !isHashMismatch({ last_error: null }));
 }

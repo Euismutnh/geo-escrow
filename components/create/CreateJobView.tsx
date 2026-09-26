@@ -22,7 +22,7 @@ import { isTxHash, shortHash, txUrl } from '@/lib/explorer';
 import { formatTime } from '@/lib/format';
 import { canonicalQueryPool } from '@/lib/hash';
 import {
-  checkDraft, EXAMPLE_DRAFT, LIMITS, MIN_LEAD_MS, QUERY_MAX, QUERY_MIN, toLocalInput,
+  checkDraft, EXAMPLE_DRAFT, FIELD_LABEL, firstInvalid, LIMITS, MIN_LEAD_MS, QUERY_MAX, QUERY_MIN, toLocalInput,
   type Draft, type DraftField,
 } from '@/lib/job-input';
 import { useChainInfo } from '@/lib/queries';
@@ -179,7 +179,8 @@ function CreateForm({ address, chain, onTxSent, blocked }: {
   // Sejak hash didapat, isian SUDAH terkunci di chain — form tidak boleh diubah lagi.
   const locked = isBusy(phase) || phase === 'done' || phase === 'sync_failed' || phase === 'unknown' || devBusy;
   const c = checkDraft(d, now ?? 0, bal.data?.value ?? null);
-  const first = (Object.values(c.errors)[0] as string | undefined) ?? null;
+  const bad = firstInvalid(c.errors);
+  const first = bad ? `${FIELD_LABEL[bad.field]}: ${bad.message}${bad.others ? ` (dan ${bad.others} isian lain)` : ''}` : null;
   const valid = now !== null && !first;
   const err = (f: DraftField) => (touched[f] ? c.errors[f] : undefined);
   const on = (f: keyof Draft) => (e: { target: { value: string } }) => {
@@ -190,6 +191,14 @@ function CreateForm({ address, chain, onTxSent, blocked }: {
   };
   const blur = (f: DraftField) => () => setTouched((t) => ({ ...t, [f]: true }));
   const touchAll = () => setTouched({ brand: true, brief: true, queries: true, target: true, budget: true, deadline: true });
+  /** Tandai semua kolom yang salah, lalu bawa pengguna ke kolom pertama. */
+  const showErrors = () => {
+    touchAll();
+    if (!bad) return;
+    const el = document.getElementById(`f-${bad.field}`);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el?.focus({ preventScroll: true });
+  };
 
   const bps = (v: string | null) => (v && /^\d+$/.test(v) ? BigInt(v) : null);
   const bondBps = bps(chain.bondBps), structBps = bps(chain.structuralBps);
@@ -255,7 +264,7 @@ function CreateForm({ address, chain, onTxSent, blocked }: {
             placeholder="Apa rekomendasi skincare organik terbaik di Indonesia?" readOnly={locked} aria-invalid={!!err('queries')} aria-describedby="f-queries-err" />
         </Field>
         <div className="grid-2" style={{ marginTop: 18 }}>
-          <Field id="f-target" label="Target" opt={`dari ${c.queries.length || 'N'} pertanyaan`} error={err('target')} hint="Berapa pertanyaan yang harus menyebut brand agar dana cair.">
+          <Field id="f-target" label="Target" opt={`dari ${c.queries.length || 'N'} pertanyaan`} error={err('target')} hint="Berapa pertanyaan yang harus menyebut brand agar dana cair. Baseline diukur setelah kontrak dibuat — pilih target DI ATAS jumlah pertanyaan yang kira-kira sudah menyebut brand hari ini, supaya dana hanya cair kalau ada peningkatan.">
             <input id="f-target" className={err('target') ? 'input num err' : 'input num'} type="number" inputMode="numeric" min={1} max={Math.max(Math.min(c.queries.length, QUERY_MAX), 1)}
               value={d.target} onChange={on('target')} onBlur={blur('target')} readOnly={locked} aria-invalid={!!err('target')} aria-describedby="f-target-err" />
           </Field>
@@ -349,6 +358,11 @@ function CreateForm({ address, chain, onTxSent, blocked }: {
             onDone={() => { if (jobIdRef.current !== null) router.push(`/jobs/${jobIdRef.current}`); }}
             doneMessage="Kontrak dibuat. Membuka halaman kontrak…"
           />
+          {bad && now !== null && !blocked && !locked && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={showErrors}>
+              <Icon name="alert" />Tunjukkan isian yang bermasalah
+            </button>
+          )}
           {chain.chainEnabled === false && (
             <div className="txw">
               <button type="button" className="btn btn-secondary" onClick={devCreate} disabled={devBusy || !valid}>

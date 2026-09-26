@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { phaseHits, type Phase } from '@/lib/job-view';
+import { Icon } from '@/components/ui/Icon';
+import { phaseHits, TARGET_BASELINE_WARNING, targetNotAboveBaseline, type Phase } from '@/lib/job-view';
 import type { Job, OracleRun } from '@/lib/types';
 import { hitsProblem } from './DetailCards';
 
@@ -94,6 +95,12 @@ export function RadarCard({ job, runs }: { job: Job; runs: OracleRun[] }) {
         </div>
         <div><b>{pct(job.target_count, n)}</b><span>Target · {job.target_count}/{n}</span></div>
       </div>
+      {/* Hanya selama kontrak berjalan — setelah selesai (terutama ditarik kembali) kalimatnya menyesatkan. */}
+      {targetNotAboveBaseline(job) && job.status !== 'ReleasedFull' && job.status !== 'Refunded' && (
+        <div className="card-b" style={{ borderTop: '1px solid var(--line)' }}>
+          <div className="note note-warn"><Icon name="alert" /><div>{TARGET_BASELINE_WARNING}</div></div>
+        </div>
+      )}
     </section>
   );
 }

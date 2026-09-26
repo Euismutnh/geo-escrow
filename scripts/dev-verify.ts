@@ -11,11 +11,16 @@
  * MENGUBAH data job 4. Jalankan POST /api/dev/seed setelah selesai.
  */
 process.loadEnvFile('.env.local');
+// Skrip ini MENGUBAH job ber-id tetap dan (untuk verify) bisa MENGIRIM transaksi
+// settle. Saat chain menyala, job itu kontrak SUNGGUHAN — tolak (audit S-21).
+if (process.env.CHAIN_ENABLED === 'true') {
+  console.error('\n  Ditolak: CHAIN_ENABLED=true. Skrip ini hanya untuk mode pengembangan (chain mati).\n');
+  process.exit(1);
+}
 import { db } from '../lib/db';
 import { getJob } from '../lib/jobs-repo';
 import { runVerification } from '../lib/flows/verify';
-import { verdictHash, canonicalVerdict, type Verdict } from '../lib/verdict';
-import { deriveSubset, subsetSize } from '../lib/vrf';
+import { verdictHash, canonicalVerdict, recomputeSubset, type Verdict } from '../lib/verdict';
 import { decide } from '../lib/scoring';
 import { ApiError } from '../lib/http';
 
@@ -88,7 +93,7 @@ async function main() {
   console.log('  3. AUDIT: verdict bisa dihitung ulang pihak luar?');
   const v = (await getJob(JOB)).verdict_json as Verdict;
 
-  const subsetUlang = deriveSubset(v.seed as `0x${string}`, v.n, subsetSize(v.n));
+  const subsetUlang = recomputeSubset(v); // GEOv1 atau GEOv2
   check('subset bisa diturunkan ulang dari seed',
     JSON.stringify(subsetUlang) === JSON.stringify(v.subset),
     `${JSON.stringify(subsetUlang)} vs ${JSON.stringify(v.subset)}`);

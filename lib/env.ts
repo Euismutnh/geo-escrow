@@ -18,6 +18,12 @@ function req(name: string): string {
   return v;
 }
 
+/** Bilangan bulat positif dari env, atau cadangan kalau kosong/tidak sah. */
+function positiveInt(raw: string | undefined, fallback: number): number {
+  const n = raw === undefined || raw === '' ? NaN : Number(raw);
+  return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+}
+
 // Hanya Claude -- keputusan tim (2026-09-13): tidak jadi memakai dua
 // provider AI. multi_engine karena itu SELALU berarti dua persona dari
 // model yang sama, tidak pernah dua penyedia berbeda. Lihat catatan
@@ -40,6 +46,26 @@ export const env = {
   },
   get anthropicKey() {
     return req('ANTHROPIC_API_KEY');
+  },
+  /**
+   * Kuota panggilan AI sungguhan per 24 jam (temuan audit S-09). Dihitung
+   * dari tabel oracle_runs — berlaku lintas instance serverless, tidak
+   * seperti rate limit di memori. Mock tidak dihitung (gratis).
+   * Default: global 400 (±33 kontrak penuh), per client 60 (±5 kontrak).
+   */
+  get oracleDailyCallLimit() {
+    return positiveInt(process.env.ORACLE_DAILY_CALL_LIMIT, 400);
+  },
+  get oracleClientDailyCallLimit() {
+    return positiveInt(process.env.ORACLE_CLIENT_DAILY_CALL_LIMIT, 60);
+  },
+  /**
+   * Mock di produksi (temuan audit S-19): hasilnya bisa dihitung di muka
+   * dan tidak membaca konten. Ditolak kecuali disetujui EKSPLISIT —
+   * mis. deploy demo yang memang memakai mock dan menyebutnya ke juri.
+   */
+  get allowMockInProduction() {
+    return process.env.ALLOW_MOCK_ORACLE_IN_PRODUCTION === 'true';
   },
 
   // ---- Blockchain (Fase 9) ----

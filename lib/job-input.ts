@@ -19,6 +19,16 @@ export const LIMITS = {
   deliverable: 20_000,
 } as const;
 
+/**
+ * Budget minimum: 0,0005 tBNB (temuan audit S-09). Kontrak menerima 1 wei,
+ * dan tiap kontrak memicu sampai 12 panggilan AI (baseline + verifikasi,
+ * dua persona) — kontrak berharga nol akan menjadi cara murah menguras
+ * kredit AI. Server menegakkan angka yang SAMA sebelum memanggil AI
+ * sungguhan (lib/oracle/runner.ts), untuk kontrak yang dibuat di luar
+ * aplikasi.
+ */
+export const MIN_BUDGET_WEI = 500_000_000_000_000n;
+
 /** requireQueryPool(): 3–6 pertanyaan. */
 export const QUERY_MIN = 3;
 export const QUERY_MAX = 6;
@@ -59,6 +69,30 @@ export interface Draft {
 }
 
 export type DraftField = 'brand' | 'brief' | 'queries' | 'target' | 'budget' | 'deadline';
+
+/** Urutan kolom SEPERTI DI LAYAR — dipakai untuk menunjuk kesalahan pertama. */
+export const FIELD_ORDER: readonly DraftField[] = ['brand', 'brief', 'queries', 'target', 'budget', 'deadline'];
+
+export const FIELD_LABEL: Record<DraftField, string> = {
+  brand: 'Nama brand',
+  brief: 'Ringkasan brief',
+  queries: 'Pertanyaan',
+  target: 'Target',
+  budget: 'Budget',
+  deadline: 'Batas ambil',
+};
+
+/**
+ * Kesalahan pertama menurut urutan di layar (bukan urutan pemeriksaan),
+ * plus berapa kolom lain yang juga salah. Pesan di bawah tombol memakai
+ * ini supaya menyebut KOLOMNYA — dulu hanya isi pesannya, dan kolomnya
+ * baru ditandai kalau pernah disentuh, jadi tidak ketahuan mana yang salah.
+ */
+export function firstInvalid(errors: Partial<Record<DraftField, string>>): { field: DraftField; message: string; others: number } | null {
+  const bad = FIELD_ORDER.filter((f) => errors[f]);
+  if (bad.length === 0) return null;
+  return { field: bad[0], message: errors[bad[0]]!, others: bad.length - 1 };
+}
 
 export interface DraftCheck {
   errors: Partial<Record<DraftField, string>>;
@@ -102,6 +136,7 @@ export function checkDraft(d: Draft, now: number, balanceWei?: bigint | null): D
 
   const budgetWei = parseBudgetTbnb(d.budget);
   if (budgetWei === null || budgetWei <= 0n) errors.budget = 'Masukkan jumlah tBNB yang valid, mis. 0,003.';
+  else if (budgetWei < MIN_BUDGET_WEI) errors.budget = 'Budget minimum 0,0005 tBNB.';
   else if (balanceWei !== undefined && balanceWei !== null && budgetWei >= balanceWei) errors.budget = 'Saldo wallet tidak cukup untuk budget ini ditambah biaya gas.';
 
   const ms = d.deadline ? Date.parse(d.deadline) : NaN;

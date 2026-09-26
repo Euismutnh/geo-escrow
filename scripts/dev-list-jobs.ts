@@ -61,3 +61,5 @@ async function main() {
 }
 
 main().catch((e) => { console.error('  FAIL melempar:', e); process.exit(1); });
+
+export {}; // modul, bukan skrip global — `main`/`cek` tidak bentrok dengan skrip lain

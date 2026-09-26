@@ -52,3 +52,22 @@ export function contentAllowed(locked: string | null, contentHash: string): bool
  * gangguan sistem biasa (penyebab dan jalan keluarnya berbeda).
  */
 export const HASH_MISMATCH_ERROR = 'Isi deliverable tidak cocok dengan hash on-chain';
+
+/**
+ * Berapa lama Oracle menunggu konten yang DITANDATANGANI sampai ke server
+ * (atau dikirim ulang dengan isi yang persis sama) sebelum mengembalikan
+ * kontrak ke tahap pengerjaan lewat rejectStructural (temuan audit S-22).
+ * Tanpa batas ini, hash yang ditandatangani tanpa konten — tab ditutup,
+ * draf hilang — menahan kontrak di Submitted sampai eskalasi 7 hari.
+ * Bond freelancer tidak tersentuh; ia bisa langsung mengirim ulang.
+ */
+export const SIGNED_CONTENT_GRACE_MS = 2 * 60 * 60_000;
+
+/** `submittedAtSec` = jobs().submittedAt (detik Unix, 0 = belum/di-reset). */
+export function signedContentGraceExpired(submittedAtSec: bigint | number, nowMs: number): boolean {
+  const s = Number(submittedAtSec);
+  return s > 0 && nowMs - s * 1000 > SIGNED_CONTENT_GRACE_MS;
+}
+
+export const SIGNED_CONTENT_MISSING_REASON =
+  'Konten yang ditandatangani tidak diterima server dalam 2 jam — kontrak dikembalikan ke tahap pengerjaan, silakan kirim ulang.';

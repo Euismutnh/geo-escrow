@@ -17,6 +17,7 @@ import { addrUrl } from '@/lib/explorer';
 import { formatTBNB, shortAddr } from '@/lib/format';
 import { ledgerBalance, ledgerSeries, lockedFor, receivedBy } from '@/lib/ledger';
 import { LIMITS, useActivity, useChainInfo, useJobs, useStats } from '@/lib/queries';
+import { POLL_SLOW_MS } from '@/lib/status';
 import { useNow } from '@/lib/use-now';
 
 const DAY = 86_400_000;
@@ -79,14 +80,15 @@ function LedgerTrend({ onChain, chainEnabled }: { onChain: bigint; chainEnabled:
 }
 
 /**
- * "Terkunci di kontrak" = saldo tBNB kontrak escrow, dibaca LANGSUNG dari
+ * "Total di escrow · semua kontrak" = saldo tBNB kontrak escrow, dibaca LANGSUNG dari
  * blockchain (§A5). Itulah kebenarannya; ledger aktivitas hanya cermin
  * yang ditulis indexer, dan dipakai untuk tren saja (lihat LedgerTrend).
  */
 function LockedHero() {
   const chain = useChainInfo();
   const contract = chain.data?.contractAddress ?? null;
-  const bal = useTbnbBalance(contract);
+  // Saldo escrow berubah oleh transaksi SIAPA PUN — bukan hanya wallet ini (Fase 9).
+  const bal = useTbnbBalance(contract, POLL_SLOW_MS);
 
   let body: ReactNode;
   if (chain.isPending || (contract && bal.isPending)) {
@@ -112,7 +114,7 @@ function LockedHero() {
   return (
     <div className="card bal hero">
       <div className="bal-top">
-        <span className="bal-l"><Icon name="lock" />Terkunci di kontrak</span>
+        <span className="bal-l"><Icon name="lock" />Total di escrow · semua kontrak</span>
         {contract && (
           <a className="bal-addr mono" href={addrUrl(contract)} target="_blank" rel="noopener noreferrer">
             {shortAddr(contract)}<Icon name="ext" />

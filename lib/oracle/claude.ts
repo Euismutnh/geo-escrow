@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../env';
-import { systemPrompt } from './prompt';
+import { systemPrompt, userContent } from './prompt';
 import { OracleError, type OracleProvider, type OracleRequest, type OracleResult } from './types';
 import { CLAUDE_ENGINES } from './engines';
 
@@ -41,17 +41,25 @@ export const claudeProvider: OracleProvider = {
   async ask(req: OracleRequest): Promise<OracleResult> {
     const t0 = Date.now();
 
-    let res: Anthropic.Message;
+    let res: Anthropic.Beta.BetaMessage;
     try {
-      res = await getClient().messages.create({
+      res = await getClient().beta.messages.create({
         model: MODEL,
         max_tokens: MAX_TOKENS,
         // effort 'low': jawabannya pendek dan tidak butuh penalaran dalam.
         // Menurunkan biaya & latensi TANPA mematikan thinking -- mematikannya
         // pada Opus 5 berisiko membocorkan tag internal ke dalam jawaban.
         output_config: { effort: 'low' },
+        // Refusal fallback (Fase 10): kalau model menolak, API menjalankan
+        // ulang permintaan yang sama di model cadangan dalam SATU panggilan.
+        // Model yang benar-benar menjawab dicatat dari res.model di bawah —
+        // log Oracle tidak boleh mengaku jawabannya dari model lain.
+        betas: ['server-side-fallback-2026-07-01'],
+        fallbacks: 'default',
         system: systemPrompt(req),
-        messages: [{ role: 'user', content: req.query }],
+        // Deliverable = blok dokumen terpisah, BUKAN bagian system prompt
+        // (pertahanan injeksi prompt, lihat lib/oracle/prompt.ts).
+        messages: [{ role: 'user', content: userContent(req) }],
       });
     } catch (e) {
       throw toOracleError(e);
@@ -70,16 +78,17 @@ export const claudeProvider: OracleProvider = {
       );
     }
 
-    // res.content adalah union -- persempit dulu sebelum membaca .text.
+    // res.content adalah union (termasuk blok fallback) -- persempit dulu
+    // sebelum membaca .text.
     const text = res.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
       .map((b) => b.text)
       .join('')
       .trim();
 
     if (!text) throw new OracleError('Model mengembalikan jawaban kosong', true);
 
-    return { answer: text, model: MODEL, latencyMs: Date.now() - t0 };
+    return { answer: text, model: res.model, latencyMs: Date.now() - t0 };
   },
 };
 

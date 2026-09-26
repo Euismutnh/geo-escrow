@@ -522,7 +522,7 @@
           "Oracle"
         ],
         "summary": "Ukur ulang baseline (T0)",
-        "description": "Baseline berjalan **otomatis** saat job dibuat. Endpoint ini hanya untuk\nmencoba lagi setelah gagal.\n\nTanpa header `Authorization`, hanya boleh kalau `job_state = \"error\"` —\ntanpa pembatas itu, siapa pun bisa menyuruh server menghabiskan kredit AI.",
+        "description": "Baseline berjalan **otomatis** saat job dibuat. Endpoint ini hanya untuk\nmencoba lagi setelah gagal.\n\nTanpa header `Authorization`, hanya boleh kalau `status = \"Open\"`,\n`baseline_score = null`, dan `job_state = \"error\"` (atau pengukuran macet\n> 3 menit di `queued_baseline`/`running_baseline`) — tanpa pembatas itu,\nsiapa pun bisa menyuruh server menghabiskan kredit AI, atau menghapus\npenanda \"settlement gagal\" milik job yang sedang diverifikasi.\n\nDengan header pun, baseline hanya diukur saat `status = \"Open\"`.",
         "parameters": [
           {
             "name": "id",
@@ -979,7 +979,7 @@
           "Oracle"
         ],
         "summary": "Verdict + audit yang bisa diverifikasi ulang",
-        "description": "Mengembalikan string kanonik supaya pihak luar bisa menghitung keccak256-nya sendiri dan mencocokkannya dengan yang tercatat on-chain.",
+        "description": "Mengembalikan string kanonik supaya pihak luar bisa menghitung keccak256-nya sendiri dan mencocokkannya dengan yang tercatat on-chain.\n\nDua versi verdict (bentuk respons endpoint tidak berubah):\n- `GEOv1` — subset = undian dari `seed` on-chain. Verdict sebelum 27-09-2026 & mode pengembangan.\n- `GEOv2` — tambahan `confirmTx`, `confirmBlockHash`, `deliverableHash`. Subset = undian dari\n  keccak256(seed ‖ confirmBlockHash ‖ uint256(jobId) ‖ deliverableHash). Seed on-chain di BSC praktis\n  konstan, jadi v1 bisa ditebak sebelum verifikasi. Periksa sendiri: `confirmTx` harus\n  `confirmStructural(jobId)` ke kontrak ini, sukses, di blok `confirmBlockHash`.\nString kanonik v2 = 12 baris v1 + tiga baris itu (heksa huruf kecil).",
         "parameters": [
           {
             "name": "id",
@@ -1008,7 +1008,29 @@
                       ]
                     },
                     "verdict": {
-                      "type": "object"
+                      "type": "object",
+                      "description": "GEOv1 atau GEOv2 — lihat deskripsi endpoint.",
+                      "properties": {
+                        "v": {
+                          "type": "string",
+                          "enum": [
+                            "GEOv1",
+                            "GEOv2"
+                          ]
+                        },
+                        "confirmTx": {
+                          "type": "string",
+                          "description": "Hanya GEOv2"
+                        },
+                        "confirmBlockHash": {
+                          "type": "string",
+                          "description": "Hanya GEOv2"
+                        },
+                        "deliverableHash": {
+                          "type": "string",
+                          "description": "Hanya GEOv2"
+                        }
+                      }
                     },
                     "canonical": {
                       "type": "string"

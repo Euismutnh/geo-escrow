@@ -1,16 +1,20 @@
 'use client';
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { useWallet } from '@/components/wallet/useWallet';
 import { useWalletUi } from '@/components/wallet/WalletUi';
-import { apiPost, ApiClientError } from '@/lib/api';
+import { api, apiPost, ApiClientError } from '@/lib/api';
+import { draftKey, ensureDeliverable } from '@/lib/deliverable';
 import { isTxHash, shortHash, txUrl } from '@/lib/explorer';
+import { contentHash } from '@/lib/hash';
 import type { VerifyResult } from '@/lib/flows/verify';
 import { invalidateAfterChange } from '@/lib/invalidate';
 import { verifyOutcome, type OracleAction, type OracleOffer } from '@/lib/job-view';
 import { oracleActionKey } from '@/lib/queries';
 import type { Relation } from '@/lib/tx';
+import type { Job } from '@/lib/types';
 
 /*
  * Tombol yang MEMICU kerja Oracle di server — tanpa transaksi dari wallet
@@ -87,7 +91,9 @@ export function OracleActionButton({ jobId, offer, rel, primary = false }: {
     // LEPAS dari layar — yang terpasang di komponen tidak boleh diandalkan.
     mutationFn: async () => {
       try {
-        return await apiPost<Result>(PATH[offer.kind](jobId), {});
+        const r = await apiPost<Result>(PATH[offer.kind](jobId), {});
+        if (offer.kind === 'sync') await waitForPickup(jobId);
+        return r;
       } finally {
         invalidateAfterChange(qc, jobId);
       }
@@ -128,6 +134,92 @@ export function OracleActionButton({ jobId, offer, rel, primary = false }: {
         </p>
       )}
       {bad && <p className={bad.tone === 'err' ? 'tx-msg err' : 'tx-msg'}><Icon name={bad.tone === 'err' ? 'alert' : 'info'} /><span>{bad.text}</span></p>}
+    </div>
+  );
+}
+
+/**
+ * POST /api/sync membalas SEBELUM confirmStructural mengambil lock (ia
+ * berjalan di after()). Kalau halaman langsung menyegarkan, job masih
+ * terbaca `error` — status yang tidak di-polling — dan layar diam padahal
+ * Oracle baru saja mulai. Tunggu sebentar sampai kerja itu terlihat
+ * (lock diambil = job_state bukan 'error' lagi, atau status sudah maju).
+ * Selama menunggu, mutasi masih berjalan → useJob mem-polling.
+ */
+export async function waitForPickup(jobId: number, tries = 5, gapMs = 1_500): Promise<void> {
+  for (let i = 0; i < tries; i++) {
+    await new Promise((r) => setTimeout(r, gapMs));
+    try {
+      const { job } = await api<{ job: Job }>(`/api/jobs/${jobId}`);
+      if (job.status !== 'Submitted' || job.job_state !== 'error') return;
+    } catch { return; /* halaman tetap menyegarkan lewat invalidasi */ }
+  }
+}
+
+// ---------------------------------------------------------------------
+// Kirim ulang konten yang DITANDATANGANI (temuan audit S-13)
+// ---------------------------------------------------------------------
+
+const readDraft = (jobId: number) => { try { return localStorage.getItem(draftKey(jobId)) ?? ''; } catch { return ''; } };
+const clearDraft = (jobId: number) => { try { localStorage.removeItem(draftKey(jobId)); } catch { /* abaikan */ } };
+
+/**
+ * Konfirmasi struktural berhenti karena isi di server ≠ hash yang
+ * ditandatangani freelancer (draf ditimpa sebelum tanda tangan, dan tab
+ * ditutup sebelum kiriman ulang pasca-receipt). Hash on-chain tidak bisa
+ * diubah — satu-satunya jalan keluar: kirim isi yang PERSIS sama.
+ *
+ * Tombol baru aktif kalau keccak256 teks di kotak = hash on-chain
+ * (dihitung di browser), jadi tidak ada kiriman yang pasti ditolak
+ * server (HASH_MISMATCH). Draf lokal dipakai kalau masih ada — ia baru
+ * dihapus setelah kiriman pasca-receipt sukses, jadi pada kasus ini
+ * biasanya masih tersimpan. Setelah terkirim, POST /api/sync memicu
+ * confirmStructural lagi.
+ */
+export function ResendSignedContent({ job }: { job: Job }) {
+  const qc = useQueryClient();
+  const [text, setText] = useState(() => readDraft(job.job_id));
+  const trimmed = text.trim();
+  const signed = job.deliverable_hash; // cermin hash on-chain (route & indexer)
+  const matches = !!signed && trimmed.length > 0 && contentHash(trimmed).toLowerCase() === signed.toLowerCase();
+
+  const m = useMutation({
+    mutationKey: oracleActionKey('sync', job.job_id),
+    mutationFn: async () => {
+      try {
+        await ensureDeliverable(job.job_id, trimmed, signed!);
+        clearDraft(job.job_id);
+        await apiPost(`/api/sync/${job.job_id}`, {});
+        await waitForPickup(job.job_id);
+      } finally {
+        invalidateAfterChange(qc, job.job_id);
+      }
+    },
+  });
+
+  return (
+    <div className="stack">
+      <div>
+        <div className="label"><label htmlFor={`f-resend-${job.job_id}`}>Konten yang Anda tandatangani</label></div>
+        <textarea id={`f-resend-${job.job_id}`} className="textarea" rows={6} value={text} readOnly={m.isPending}
+          onChange={(e) => setText(e.target.value)} placeholder="Tempel konten PERSIS seperti saat Anda menandatangani." />
+        <ul className="checks">
+          <li className={matches ? 'ok' : undefined}>
+            <Icon name={matches ? 'check' : 'dot'} />
+            {matches ? 'Sama persis dengan hash on-chain' : 'Belum sama dengan hash on-chain'}
+            {signed && <span className="mono"> · {shortHash(signed)}</span>}
+          </li>
+        </ul>
+      </div>
+      <div className="txw">
+        <button type="button" className="btn btn-primary" onClick={() => m.mutate()} disabled={!matches || m.isPending}>
+          {m.isPending ? <span className="spin" aria-hidden="true" /> : <Icon name="refresh" />}
+          {m.isPending ? 'Mengirim ulang…' : 'Kirim ulang & konfirmasi'}
+        </button>
+        {!matches && trimmed.length > 0 && <p className="tx-msg"><Icon name="info" /><span>Satu karakter berbeda (termasuk spasi di tengah atau baris baru) sudah membuat hash-nya lain.</span></p>}
+        {m.isSuccess && <p className="tx-msg ok"><Icon name="check" /><span>Konten terkirim. Oracle mengonfirmasi ulang — status diperbarui otomatis.</span></p>}
+        {m.isError && <p className="tx-msg err"><Icon name="alert" /><span>{m.error instanceof ApiClientError || m.error instanceof Error ? m.error.message : 'Kesalahan tak terduga.'}</span></p>}
+      </div>
     </div>
   );
 }

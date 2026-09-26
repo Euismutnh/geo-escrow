@@ -12,6 +12,12 @@
  * selesai untuk memulihkannya.
  */
 process.loadEnvFile('.env.local');
+// Skrip ini MENGUBAH job ber-id tetap dan (untuk verify) bisa MENGIRIM transaksi
+// settle. Saat chain menyala, job itu kontrak SUNGGUHAN — tolak (audit S-21).
+if (process.env.CHAIN_ENABLED === 'true') {
+  console.error('\n  Ditolak: CHAIN_ENABLED=true. Skrip ini hanya untuk mode pengembangan (chain mati).\n');
+  process.exit(1);
+}
 import { db } from '../lib/db';
 import { getJob } from '../lib/jobs-repo';
 import { confirmStructural } from '../lib/flows/structural';

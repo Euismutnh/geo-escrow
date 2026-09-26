@@ -13,8 +13,8 @@ import type { ActivityEntry, Job, OracleRun } from '@/lib/types';
 import { decide } from '@/lib/scoring';
 import { subsetSize } from '@/lib/vrf';
 import type { Relation } from '@/lib/tx';
-import { AcceptCard, ArbiterDecision, DeliverableCard } from './Actions';
-import { OracleActionButton } from './OracleActions';
+import { AcceptCard, ArbiterDecision, DeliverableCard, EscalateAction, ReclaimAction } from './Actions';
+import { OracleActionButton, ResendSignedContent } from './OracleActions';
 
 /*
  * Kartu-kartu halaman detail (/jobs/[id]) — BACA SAJA di Fase 4. Tombol
@@ -176,6 +176,17 @@ export function WorkCard({ job, ui, runs, activity, time, rel, chain }: {
       <OracleActionButton jobId={job.job_id} offer={offer} rel={rel} primary={ui === 'awaiting_verify'} />
     </>
   );
+  // Macet melewati verifyTimeout sejak hasil dikirim (syarat kontrak escalateStuckJob).
+  const stuck = isVerifyStuck(job, time);
+  const escalation = stuck && (
+    <>
+      <div className="note note-warn">
+        <Icon name="clock" />
+        <div><b>Kontrak ini macet melewati batas waktu verifikasi.</b> Siapa pun boleh meneruskannya ke arbiter agar dana tidak tertahan — dana tetap di kontrak sampai arbiter memutus.</div>
+      </div>
+      <EscalateAction job={job} stuck={stuck} />
+    </>
+  );
 
   switch (ui) {
     case 'baseline_running': {
@@ -205,10 +216,13 @@ export function WorkCard({ job, ui, runs, activity, time, rel, chain }: {
     case 'open': {
       if (isAcceptExpired(job, time.now)) {
         return body('Menunggu freelancer', (
-          <div className="note note-plain">
-            <Icon name="clock" />
-            <div><b>Batas ambil lewat {formatRelative(job.accept_deadline!, time.now!)}.</b> Kontrak ini tidak bisa diambil lagi, dan client bisa menarik kembali seluruh budget.</div>
-          </div>
+          <>
+            <div className="note note-plain">
+              <Icon name="clock" />
+              <div><b>Batas ambil lewat {formatRelative(job.accept_deadline!, time.now!)}.</b> Kontrak ini tidak bisa diambil lagi, dan client bisa menarik kembali seluruh budget.</div>
+            </div>
+            <ReclaimAction job={job} rel={rel} now={time.now} />
+          </>
         ));
       }
       // Siapa pun selain client melihat tawaran mengambil; penjaganya di AcceptCard.
@@ -253,6 +267,7 @@ export function WorkCard({ job, ui, runs, activity, time, rel, chain }: {
             <div><b>Oracle sedang mengonfirmasi cek struktural ke kontrak.</b> Sebagian budget cair otomatis ke freelancer setelah ini selesai.</div>
           </div>
           {action}
+          {escalation}
         </>
       ));
     case 'structural_failed': {
@@ -264,17 +279,20 @@ export function WorkCard({ job, ui, runs, activity, time, rel, chain }: {
             <Icon name="alert" />
             <div>
               {mismatch
-                ? <><b>Konten di server tidak sama dengan yang ditandatangani freelancer.</b> Hash on-chain tidak bisa diubah, jadi konfirmasi baru bisa berjalan setelah konten yang persis sama dengan saat tanda tangan dikirim ulang.</>
+                ? <><b>Konten di server tidak sama dengan yang ditandatangani freelancer.</b> Hash on-chain tidak bisa diubah, jadi konfirmasi baru bisa berjalan setelah konten yang persis sama dengan saat tanda tangan dikirim ulang. Kalau dalam 2 jam sejak dikirim belum juga, Oracle mengembalikan kontrak ke tahap pengerjaan supaya freelancer bisa mengirim konten baru — bond tetap utuh.</>
                 : <><b>Konfirmasi struktural gagal karena gangguan sistem — bukan karena konten.</b> Konten sudah terkunci di hash on-chain, jadi tidak perlu dan tidak bisa diubah. Konfirmasinya bisa dicoba lagi.</>}
               <Tech error={job.last_error} />
             </div>
           </div>
+          {mismatch && (rel === 'freelancer'
+            ? <ResendSignedContent job={job} />
+            : <p className="hint" style={{ margin: 0 }}>Hanya freelancer kontrak ini yang bisa mengirim ulang kontennya.</p>)}
           {action}
+          {escalation}
         </>
       ));
     }
     case 'awaiting_verify': {
-      const stuck = isVerifyStuck(job, activity, time);
       return body('Hasil kerja', (
         <>
           <DelivBox job={job} />
@@ -288,15 +306,9 @@ export function WorkCard({ job, ui, runs, activity, time, rel, chain }: {
               <div><b>Percobaan verifikasi terakhir gagal karena gangguan sistem.</b> Dana tidak berpindah; verifikasi bisa dijalankan lagi.<Tech error={job.last_error} /></div>
             </div>
           )}
-          {stuck
-            ? (
-              <div className="note note-warn">
-                <Icon name="clock" />
-                <div><b>Verifikasi macet melewati batas waktu kontrak.</b> Siapa pun boleh meneruskan kontrak ini ke arbiter agar dana tidak tertahan.</div>
-              </div>
-            )
-            : <p className="hint" style={{ margin: 0 }}>Langkah berikutnya: verifikasi. Oracle mengukur ulang {subsetSize(n)} dari {n} pertanyaan yang dipilih acak, dengan konten ini sebagai konteks, lalu kontrak membagikan dana sesuai hasilnya. Verifikasi tidak berjalan sendiri — client atau freelancer memicunya di bawah ini.</p>}
+          {!stuck && <p className="hint" style={{ margin: 0 }}>Langkah berikutnya: verifikasi. Oracle mengukur ulang {subsetSize(n)} dari {n} pertanyaan yang dipilih acak, dengan konten ini sebagai konteks, lalu kontrak membagikan dana sesuai hasilnya. Verifikasi tidak berjalan sendiri — client atau freelancer memicunya di bawah ini.</p>}
           {action}
+          {escalation}
         </>
       ));
     }
@@ -309,6 +321,7 @@ export function WorkCard({ job, ui, runs, activity, time, rel, chain }: {
             <b>Oracle memverifikasi — {done} dari {total} pertanyaan terpilih.</b> Hasil dan keputusan settlement muncul otomatis.
           </Progress>
           {action}
+          {escalation}
           <DelivBox job={job} />
         </>
       ));

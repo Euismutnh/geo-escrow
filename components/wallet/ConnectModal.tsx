@@ -36,6 +36,7 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
   const all = useConnectors();
   const connect = useConnect();
   const firstRef = useRef<HTMLButtonElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
   const { status } = useConnection();
 
   // Tutup begitu terhubung — juga kalau user menekan "Batal" di sini
@@ -55,7 +56,18 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     firstRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      // Pengunci fokus (Fase 10): Tab/Shift+Tab berputar DI DALAM modal —
+      // tanpa ini fokus berjalan ke halaman di belakang latar gelap.
+      if (e.key !== 'Tab' || !modalRef.current) return;
+      const items = [...modalRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')];
+      if (items.length === 0) return;
+      const first = items[0], last = items[items.length - 1];
+      const inside = modalRef.current.contains(document.activeElement);
+      if (e.shiftKey && (document.activeElement === first || !inside)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (document.activeElement === last || !inside)) { e.preventDefault(); first.focus(); }
+    };
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
@@ -113,7 +125,7 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="cm-t" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" ref={modalRef} role="dialog" aria-modal="true" aria-labelledby="cm-t" onClick={(e) => e.stopPropagation()}>
         <div className="modal-h">
           <div>
             <h3 id="cm-t">Hubungkan wallet</h3>

@@ -1,11 +1,14 @@
 import { HASH_MISMATCH_ERROR } from './deliverable-lock';
 import { formatTBNB, shortAddr } from './format';
+import { contentHash, queryPoolHash } from './hash';
 import { ledgerBalance } from './ledger';
 import { decide, hitPerQuery } from './scoring';
 import { isStaleLock, type UiStatus } from './status';
 import type { ActivityEntry, Job, OracleRun } from './types';
-import { verdictHash, type Verdict } from './verdict';
-import { deriveSubset, subsetSize } from './vrf';
+import { recomputeSubset, verdictHash, type Verdict } from './verdict';
+import { subsetSize } from './vrf';
+import { geoEscrowAbi } from './abi';
+import { decodeFunctionData } from 'viem';
 import type { VerifyResult } from './flows/verify';
 
 /*
@@ -93,18 +96,25 @@ export function isAcceptExpired(job: Pick<Job, 'status' | 'accept_deadline'>, no
 }
 
 /**
- * Verifikasi macet melewati verifyTimeout — siapa pun boleh
- * escalateStuckJob(). Waktu mulainya dari event StructuralConfirmed
- * (aktivitas structural_release). Tanpa event itu, atau tanpa nilai
- * timeout dari kontrak, jawabannya "tidak" — lebih baik tidak menawarkan
- * aksi yang akan ditolak kontrak.
+ * Job macet melewati verifyTimeout — siapa pun boleh escalateStuckJob().
+ * Syaratnya disalin dari kontrak (GeoEscrow.escalateStuckJob):
+ *   status Submitted ATAU Verifying, dan block.timestamp > submittedAt + verifyTimeout
+ *
+ * Dulu patokannya waktu event StructuralConfirmed dan hanya status
+ * Verifying (temuan audit S-26): job yang macet di `Submitted` — Oracle
+ * tidak pernah mengonfirmasi — tidak pernah ditawari eskalasi, padahal
+ * justru kasus itu yang paling butuh. `deliverable_submitted_at` kini
+ * ditulis indexer dari `jobs().submittedAt` (S-11).
+ *
+ * Oracle yang SEDANG bekerja tidak diganggu; yang macet (lock > 3 mnt)
+ * dianggap tidak bekerja. Tanpa jam, waktu submit, atau timeout dari
+ * kontrak: "tidak" — jangan menawarkan aksi yang akan ditolak kontrak.
  */
-export function isVerifyStuck(job: Pick<Job, 'status' | 'job_state'>, activity: readonly ActivityEntry[], t: TimeCtx): boolean {
-  if (job.status !== 'Verifying' || job.job_state === 'running_verify') return false;
-  if (t.now === null || t.verifyTimeoutSec === null) return false;
-  const s = lastActivity(activity, ['structural_release']);
-  if (!s) return false;
-  const start = Date.parse(s.created_at);
+export function isVerifyStuck(job: Pick<Job, 'status' | 'job_state' | 'job_state_at' | 'deliverable_submitted_at'>, t: TimeCtx): boolean {
+  if (job.status !== 'Submitted' && job.status !== 'Verifying') return false;
+  if (t.now === null || t.verifyTimeoutSec === null || !job.deliverable_submitted_at) return false;
+  if ((job.job_state === 'running_verify' || job.job_state === 'running_structural') && !isStaleLock(job, t.now)) return false;
+  const start = Date.parse(job.deliverable_submitted_at);
   return Number.isFinite(start) && t.now - start > t.verifyTimeoutSec * 1000;
 }
 
@@ -185,7 +195,7 @@ export function timeline(job: Job, ui: UiStatus, activity: readonly ActivityEntr
   const [idx, failed] = POS[ui];
   const reclaimed = isReclaimed(job);
   const rejected = rejectedSubmission(ui, activity);
-  const stuck = isVerifyStuck(job, activity, t);
+  const stuck = isVerifyStuck(job, t);
 
   const ev = (types: string[]) => lastActivity(activity, types);
   const deposit = ev(['deposit']), bond = ev(['bond_lock']), structural = ev(['structural_release']), settle = ev(SETTLE_TYPES);
@@ -211,7 +221,8 @@ export function timeline(job: Job, ui: UiStatus, activity: readonly ActivityEntr
     if (i === 4 && ui === 'submitted_pending') sub = 'Oracle sedang mengonfirmasi ke kontrak…';
     if (i === 4 && ui === 'structural_failed') sub = isHashMismatch(job) ? 'Tertahan — konten di server tidak cocok dengan hash on-chain' : 'Konfirmasi gagal — gangguan sistem';
     if (i === 5 && ui === 'verifying') sub = 'Oracle bertanya ulang ke AI…';
-    if (i === 5 && stuck) sub = 'Macet melewati batas waktu verifikasi';
+    if (i === 4 && stuck && job.status === 'Submitted') sub = 'Macet melewati batas waktu · bisa dieskalasi ke arbiter';
+    if (i === 5 && stuck && job.status === 'Verifying') sub = 'Macet melewati batas waktu · bisa dieskalasi ke arbiter';
     if (i === 6 && ui === 'dispute') sub = 'Zona abu — menunggu putusan arbiter';
     if (i === 6 && (ui === 'jury_release' || ui === 'jury_refund')) sub = 'Diputus oleh arbiter';
 
@@ -276,7 +287,7 @@ function attempt(fn: () => CheckResult): CheckResult {
 }
 
 /**
- * Lima pemeriksaan yang diulang di browser pengunjung, dari data publik.
+ * Delapan pemeriksaan yang diulang di browser pengunjung, dari data publik.
  * Server punya pemeriksaan sendiri (GET /api/jobs/:id/verdict), tapi
  * "server bilang lolos" bukan bukti — menghitung ulang sendiri adalah bukti.
  *
@@ -287,20 +298,33 @@ export function auditVerdict(
   job: Job,
   verdict: Verdict,
   runs: readonly OracleRun[],
-  chain: { onChain: string | null; chainEnabled: boolean } | 'loading' | 'error'
+  chain: {
+    onChain: string | null;
+    chainEnabled: boolean;
+    /** Dari getJob() yang dibaca browser — dasar pemeriksaan 6 & 8. */
+    seed?: string | null;
+    queryPoolHash?: string | null;
+    deliverableHash?: string | null;
+    /** Alamat kontrak — untuk memastikan confirmTx memang ke kontrak ini. */
+    contract?: string | null;
+    /** GEOv2: transaksi confirmTx dibaca browser. null = tidak terbaca (dipangkas RPC). */
+    confirmTx?: ConfirmTxView | null | 'loading';
+  } | 'loading' | 'error'
 ): { checks: AuditCheck[]; overall: CheckResult } {
   const checks: AuditCheck[] = [];
   const push = (key: string, title: string, result: CheckResult, detail: string) => checks.push({ key, title, result, detail });
 
-  // 1. Subset: diturunkan ulang dari seed on-chain.
+  // 1. Subset: diturunkan ulang dari seed (GEOv1) atau seed efektif (GEOv2).
   let subset: number[] = [];
   const r1 = attempt(() => {
-    subset = deriveSubset(verdict.seed as `0x${string}`, verdict.n, subsetSize(verdict.n));
+    subset = recomputeSubset(verdict);
     const matchesJob = !job.verification_subset || same(job.verification_subset, verdict.subset);
     return same(subset, verdict.subset) && matchesJob ? 'y' : 'n';
   });
   push('subset', 'Subset diturunkan ulang dari seed', r1,
-    r1 === 'y' ? `Seed → pertanyaan #${verdict.subset.map((i) => i + 1).join(', #')}` : 'Subset di verdict tidak sama dengan hasil undian dari seed');
+    r1 === 'y'
+      ? `${verdict.v === 'GEOv2' ? 'Seed + blok konfirmasi' : 'Seed'} → pertanyaan #${verdict.subset.map((i) => i + 1).join(', #')}`
+      : 'Subset di verdict tidak sama dengan hasil undian dari seed');
 
   // 2. Hit di verdict = log jawaban AI, dan jumlahnya = skor.
   const ph = phaseHits(job, runs, 'verification');
@@ -339,8 +363,87 @@ export function auditVerdict(
   }
   push('chain', 'Hash verdict cocok dengan on-chain', r5, d5);
 
+  // 6–8. Verdict TERIKAT ke kontrak ini (temuan audit S-12). Tanpa ini,
+  // Oracle bisa mempublikasi verdict dengan seed karangan (subset yang
+  // menguntungkan), target lain, atau pertanyaan/konten lain — kelima
+  // pemeriksaan di atas tetap lolos karena semuanya konsisten dengan
+  // DIRINYA SENDIRI. Bentuk verdict tidak diubah (GEOv1).
+  const live = typeof chain === 'object' && chain.chainEnabled;
+  const skip = (why: string) => ({ r: 's' as CheckResult, d: why });
+  const notLive = chain === 'loading' ? skip('Membaca kontrak…')
+    : chain === 'error' ? skip('Kontrak tidak bisa dibaca saat ini — pemeriksaan ini dilewati')
+    : skip('Blockchain nonaktif (mode pengembangan) — tidak ada data on-chain untuk dibandingkan');
+
+  const s6 = !live ? notLive : (() => {
+    const onSeed = chain.seed;
+    if (!onSeed || ZERO_HASH.test(onSeed) || onSeed.toLowerCase() !== verdict.seed.toLowerCase()) {
+      return { r: 'n' as CheckResult, d: 'Seed di verdict BERBEDA dari seed on-chain — subset bisa dipilih sendiri' };
+    }
+    if (verdict.v !== 'GEOv2') return { r: 'y' as CheckResult, d: 'Seed di verdict sama dengan yang dicatat kontrak saat cek struktural' };
+    // GEOv2: blok yang dipakai mengundi HARUS blok tempat confirmStructural
+    // job ini masuk — kalau tidak, Oracle bisa memilih blok (= memilih subset).
+    const tx = chain.confirmTx;
+    if (tx === 'loading') return { r: 's' as CheckResult, d: 'Membaca transaksi konfirmasi…' };
+    if (!tx) return { r: 's' as CheckResult, d: 'Seed cocok; transaksi konfirmasi tidak terbaca dari RPC — keterikatan blok dilewati' };
+    const sah = attempt(() => (confirmTxValid(tx, job.job_id, chain.contract ?? null) && tx.blockHash?.toLowerCase() === verdict.confirmBlockHash.toLowerCase() ? 'y' : 'n'));
+    if (sah !== 'y') return { r: 'n' as CheckResult, d: 'Blok undian BUKAN blok konfirmasi struktural job ini yang sukses — subset bisa dipilih sendiri' };
+    return tx.status === 'success'
+      ? { r: 'y' as CheckResult, d: 'Seed sama dengan kontrak, dan blok undian = blok tempat confirmStructural job ini sukses' }
+      : { r: 's' as CheckResult, d: 'Blok undian = blok confirmStructural job ini; status receipt tidak terbaca dari RPC' };
+  })();
+  push('seed', verdict.v === 'GEOv2' ? 'Seed & blok undian = on-chain' : 'Seed verdict = seed on-chain', s6.r, s6.d);
+
+  const mismatch: string[] = [];
+  if (verdict.jobId !== job.job_id) mismatch.push('nomor kontrak');
+  if (verdict.brand !== job.brand) mismatch.push('brand');
+  if (verdict.target !== job.target_count) mismatch.push('target');
+  if (verdict.n !== job.queries.length) mismatch.push('jumlah pertanyaan');
+  if (verdict.of !== subsetSize(job.queries.length)) mismatch.push('ukuran subset');
+  if (verdict.multiEngine !== job.multi_engine) mismatch.push('mode penjawab');
+  push('params', 'Parameter verdict = kontrak ini', mismatch.length ? 'n' : 'y',
+    mismatch.length ? `Berbeda dari data kontrak: ${mismatch.join(', ')}` : 'Nomor, brand, target, jumlah pertanyaan, dan ukuran subset sama');
+
+  const s8 = !live ? notLive : (() => {
+    const pool = attempt(() => {
+      const h = queryPoolHash({ brand: job.brand, queries: job.queries, targetCount: job.target_count, multiEngine: job.multi_engine });
+      return chain.queryPoolHash && h.toLowerCase() === chain.queryPoolHash.toLowerCase() ? 'y' : 'n';
+    });
+    const content = attempt(() => (
+      job.deliverable_content && chain.deliverableHash && contentHash(job.deliverable_content).toLowerCase() === chain.deliverableHash.toLowerCase()
+        // GEOv2 ikut mencatat hash konten di verdict (bahan undian) — harus sama juga.
+        && (verdict.v !== 'GEOv2' || verdict.deliverableHash.toLowerCase() === chain.deliverableHash.toLowerCase())
+        ? 'y' : 'n'
+    ));
+    if (pool === 'y' && content === 'y') return { r: 'y' as CheckResult, d: 'Hash pertanyaan & hash konten dihitung ulang, sama dengan komitmen di kontrak' };
+    return { r: 'n' as CheckResult, d: pool !== 'y' ? 'Pertanyaan yang diukur tidak cocok dengan komitmen on-chain' : 'Konten yang diukur tidak cocok dengan hash yang ditandatangani freelancer' };
+  })();
+  push('commit', 'Pertanyaan & konten = komitmen on-chain', s8.r, s8.d);
+
   const overall: CheckResult = checks.some((c) => c.result === 'n') ? 'n' : checks.every((c) => c.result === 'y') ? 'y' : 's';
   return { checks, overall };
+}
+
+/** Bagian transaksi yang dibutuhkan audit GEOv2 (bentuk minimum dari getTransaction viem/wagmi). */
+export interface ConfirmTxView {
+  to: string | null;
+  input: string;
+  blockHash: string | null;
+  /** Dari receipt. null = receipt tidak terbaca (dipangkas RPC). */
+  status: 'success' | 'reverted' | null;
+}
+
+/**
+ * Transaksi ini = confirmStructural(jobId) ke kontrak ini, dan TIDAK revert?
+ * Tx yang revert juga punya blok — tanpa cek status, Oracle bisa mengirim
+ * beberapa tx gagal lalu memilih blok yang subsetnya menguntungkan. Hanya
+ * satu confirmStructural per job yang bisa sukses (status pindah ke
+ * Verifying), jadi tx sukses mengikat blok secara unik.
+ */
+export function confirmTxValid(tx: ConfirmTxView, jobId: number, contract: string | null): boolean {
+  if (tx.status === 'reverted') return false;
+  if (!contract || tx.to?.toLowerCase() !== contract.toLowerCase()) return false;
+  const d = decodeFunctionData({ abi: geoEscrowAbi, data: tx.input as `0x${string}` });
+  return d.functionName === 'confirmStructural' && d.args?.[0] === BigInt(jobId);
 }
 
 /** Rumus keputusan dalam angka, untuk ditampilkan (identik dengan decide()). */
@@ -420,3 +523,22 @@ export function verifyOutcome(r: Pick<VerifyResult, 'score' | 'of' | 'decision' 
   if (!r.settledOnChain) notes.push('Mode pengembangan: tidak ada transaksi on-chain.');
   return { tone: r.decision === 'dispute' ? 'warn' : 'ok', text: [base, ...notes].join(' ') };
 }
+
+// ---------------------------------------------------------------------
+// K2 — target tidak di atas baseline
+// ---------------------------------------------------------------------
+
+/**
+ * true = target ≤ baseline: dana bisa cair TANPA peningkatan apa pun,
+ * karena keputusan (decide) hanya membandingkan skor dengan target —
+ * baseline tidak ikut dihitung (temuan audit S-15, keputusan K2:
+ * peringatan saja, rumus & kontrak tidak berubah). Contoh nyata: job 0,
+ * target 1/5 = baseline 1/5.
+ * Baseline belum terukur → false (jangan menebak).
+ */
+export function targetNotAboveBaseline(job: Pick<Job, 'baseline_score' | 'target_count'>): boolean {
+  return job.baseline_score !== null && job.target_count <= job.baseline_score;
+}
+
+export const TARGET_BASELINE_WARNING =
+  'Target tidak di atas baseline: brand sudah disebut sebanyak ini SEBELUM ada optimasi, jadi dana bisa cair tanpa peningkatan apa pun.';

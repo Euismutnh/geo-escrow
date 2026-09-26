@@ -3,7 +3,9 @@ import { DashboardView } from '@/components/dashboard/DashboardView';
 import { ButtonLink } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 
-export const metadata: Metadata = { title: 'Ringkasan' };
+// title.template (layout root) hanya berlaku untuk segmen ANAK — halaman ini
+// satu segmen dengan layout root, jadi judul lengkapnya ditulis absolut.
+export const metadata: Metadata = { title: { absolute: 'Ringkasan · GEO Escrow' } };
 
 export default function DashboardPage() {
   return (

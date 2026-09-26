@@ -47,6 +47,62 @@ const headerProduksi =
       ]
     : [];
 
+/**
+ * CSP HALAMAN (Fase 10) — varian "Without Nonces" dari
+ * node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md.
+ *
+ * Kenapa tanpa nonce: nonce memaksa SEMUA halaman dirender dinamis per
+ * request (panduan yang sama, "Dynamic Rendering Requirement") — halaman
+ * kita sekarang statis dan ringan, dan mesin pengembangan ini terbatas RAM.
+ * Konsekuensinya 'unsafe-inline' untuk skrip (bootstrap inline Next.js);
+ * yang tetap ditutup: skrip dari domain lain, eval (produksi), object/embed,
+ * <base>, form ke domain lain, dan pembingkaian oleh situs lain.
+ *
+ * connect-src: browser membaca chain LANGSUNG lewat RPC publik (wagmi) —
+ * origin-nya diambil dari NEXT_PUBLIC_RPC_URL saat build, plus RPC bawaan
+ * viem sebagai cadangan (lib/wagmi.ts memakainya kalau env kosong).
+ * Wallet (Rabby/MetaMask) menyuntik provider lewat API ekstensi, yang tidak
+ * tunduk pada CSP halaman — tetap WAJIB diuji dengan wallet terhubung.
+ */
+const isDev = process.env.NODE_ENV === 'development';
+const origin = (url: string | undefined) => {
+  try { return url ? new URL(url).origin : null; } catch { return null; }
+};
+const rpcOrigins = [
+  origin(process.env.NEXT_PUBLIC_RPC_URL),
+  'https://data-seed-prebsc-1-s1.bnbchain.org:8545', // RPC bawaan viem bscTestnet
+].filter((o, i, a): o is string => !!o && a.indexOf(o) === i);
+
+const cspHalaman = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
+  "style-src 'self' 'unsafe-inline'",
+  // data: = ikon wallet EIP-6963 (wajib data URI menurut spesifikasinya)
+  "img-src 'self' data: blob:",
+  "font-src 'self'", // next/font menyajikan font dari domain sendiri
+  `connect-src 'self' ${rpcOrigins.join(' ')}${isDev ? ' ws: wss:' : ''}`, // ws: = HMR dev
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'self'", // selaras X-Frame-Options SAMEORIGIN
+  // Hanya di hosting (Vercel = selalu HTTPS). Di `next start` lokal lewat
+  // http://localhost, direktif ini memaksa aset ke HTTPS dan halaman rusak.
+  ...(process.env.VERCEL === '1' ? ['upgrade-insecure-requests'] : []),
+].join('; ');
+
+/** /docs memuat Swagger UI dari cdnjs (app/docs/route.ts) — izin itu HANYA di sini. */
+const CDNJS = 'https://cdnjs.cloudflare.com';
+const cspDocs = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline' ${CDNJS}`,
+  `style-src 'self' 'unsafe-inline' ${CDNJS}`,
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "frame-ancestors 'self'",
+].join('; ');
+
 const nextConfig: NextConfig = {
   // Jangan umumkan framework + versinya ke setiap pemindai.
   poweredByHeader: false,
@@ -66,7 +122,13 @@ const nextConfig: NextConfig = {
     return [
       {
         source: '/:path*',
-        headers: [...headerDasar, ...headerProduksi],
+        headers: [...headerDasar, ...headerProduksi, { key: 'Content-Security-Policy', value: cspHalaman }],
+      },
+      // Aturan yang lebih belakang MENIMPA key yang sama dari aturan di atas
+      // (next.config headers) — /docs dan /api mendapat CSP-nya sendiri.
+      {
+        source: '/docs',
+        headers: [{ key: 'Content-Security-Policy', value: cspDocs }],
       },
       {
         source: '/api/:path*',
@@ -91,10 +153,5 @@ const nextConfig: NextConfig = {
   },
 };
 
-// CSP untuk HALAMAN sengaja BELUM dipasang. CSP yang ketat butuh nonce
-// per-request, dan memasangnya sebelum frontend ada hampir pasti akan
-// memblokir skrip wagmi/RainbowKit dengan pesan yang sulit dilacak.
-// Kerjakan saat halaman sudah jadi, pakai panduan
-// node_modules/next/dist/docs/01-app/02-guides/content-security-policy.md
 
 export default nextConfig;

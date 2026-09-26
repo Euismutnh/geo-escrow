@@ -2,10 +2,11 @@ import { db } from '../db';
 import { env } from '../env';
 import { getJob, acquireLock, releaseLock } from '../jobs-repo';
 import { runPhase } from '../oracle/runner';
-import { deriveSubset, subsetSize } from '../vrf';
+import { subsetSize } from '../vrf';
+import { contentHash } from '../hash';
 import { decide } from '../scoring';
-import { verdictHash, type Verdict } from '../verdict';
-import { getVerificationSeed, readJobFromChain, settleOnChain } from '../chain-server';
+import { recomputeSubset, verdictHash, type Verdict } from '../verdict';
+import { getVerificationSeed, readJobFromChain, readStructuralConfirm, settleOnChain } from '../chain-server';
 import { syncSetelahTx } from '../indexer';
 import { ApiError, internalError, publicErrorMessage } from '../http';
 import type { Job } from '../types';
@@ -107,6 +108,8 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
     // tercatat Verifying sampai ada sync. Diperiksa SEBELUM bertanya ke AI
     // supaya kredit tidak terbakar untuk job yang tidak akan di-settle —
     // settleOnChain() memeriksanya lagi tepat sebelum mengirim.
+    const content = job.deliverable_content!;
+    let confirm: { tx: string; blockHash: string; deliverableHash: string } | null = null;
     if (env.chainEnabled) {
       const onChain = await readJobFromChain(BigInt(jobId));
       if (!onChain || Number(onChain.status) !== 3) {
@@ -115,21 +118,41 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
           'Status di blockchain sudah bukan Verifying — tampilan sedang diperbarui dari blockchain'
         );
       }
+      // Yang diukur HARUS konten yang ditandatangani — verdict v2 mencatat
+      // hash ini, jadi mengukur konten lain berarti verdict yang berbohong.
+      if (contentHash(content).toLowerCase() !== onChain.deliverableHash.toLowerCase()) {
+        throw new ApiError('WRONG_STATUS', 'Isi deliverable di server tidak cocok dengan hash on-chain — verifikasi dihentikan');
+      }
+      // Blok konfirmasi: bahan seed efektif GEOv2 (S-04). Petunjuk tx dari
+      // activity, divalidasi di readStructuralConfirm.
+      const { data: act } = await db()
+        .from('activity')
+        .select('tx_hash')
+        .eq('job_id', jobId)
+        .eq('type', 'structural_release')
+        .order('block_number', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const c = await readStructuralConfirm(BigInt(jobId), act?.tx_hash ?? null);
+      confirm = { tx: c.tx, blockHash: c.blockHash, deliverableHash: onChain.deliverableHash.toLowerCase() };
     }
 
     // ---- 1. Seed VRF dari on-chain ----
-    // Inilah yang membuat pemilihan subset bisa diaudit: siapa pun yang
-    // tahu seed bisa menghitung ulang subset yang sama persis, sehingga
-    // Oracle tidak bisa mengulang undian sampai dapat yang menguntungkan.
+    // Seed kontrak tetap dicatat apa adanya; subset diundi dari seed
+    // EFEKTIF (GEOv2) kalau chain menyala — seed kontrak di BSC praktis
+    // konstan (S-04). Mode pengembangan tidak punya blok: tetap GEOv1.
     const seed = await getVerificationSeed(BigInt(jobId));
 
     // ---- 2. Subset ----
     const n = job.queries.length;
     const k = subsetSize(n);
-    const subset = deriveSubset(seed, n, k);
+    const base = { jobId: job.job_id, brand: job.brand, seed, n, of: k, target: job.target_count, multiEngine: job.multi_engine };
+    const draft: Verdict = confirm
+      ? { ...base, v: 'GEOv2', confirmTx: confirm.tx, confirmBlockHash: confirm.blockHash, deliverableHash: confirm.deliverableHash, subset: [], hits: [], score: 0, decision: 'dispute' }
+      : { ...base, v: 'GEOv1', subset: [], hits: [], score: 0, decision: 'dispute' };
+    const subset = recomputeSubset(draft);
 
     // ---- 3. Tanya AI, dengan deliverable sebagai konteks ----
-    const content = job.deliverable_content!;
     const perQuery = await runPhase(job, {
       phase: 'verification',
       indices: subset,
@@ -143,20 +166,7 @@ export async function runVerification(jobId: number): Promise<VerifyResult> {
     const decision = decide({ score, of: k, target: job.target_count, n });
 
     // ---- 5. Verdict yang bisa diaudit siapa pun ----
-    const verdict: Verdict = {
-      v: 'GEOv1',
-      jobId: job.job_id,
-      brand: job.brand,
-      seed,
-      subset,
-      hits,
-      score,
-      of: k,
-      target: job.target_count,
-      n,
-      multiEngine: job.multi_engine,
-      decision,
-    };
+    const verdict: Verdict = { ...draft, subset, hits, score, decision };
     const vHash = verdictHash(verdict);
 
     // ---- 6. SIMPAN DULU (lihat catatan di atas fungsi) ----

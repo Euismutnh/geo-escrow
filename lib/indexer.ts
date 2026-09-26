@@ -512,6 +512,29 @@ export interface HasilSync extends HasilIndex {
  * Di BSC Testnet 5.000 blok cuma 38 menit (§10.2a) — job yang dibuat
  * pagi ini tidak akan pernah tersinkron sore harinya.
  */
+/** Berapa kali syncJob membaca ulang log yang tertinggal dari status, dan jedanya. */
+const SYNC_ULANG = 3;
+const SYNC_ULANG_JEDA_MS = 1_500;
+
+/**
+ * Baris ledger yang PASTI sudah ada kalau kontrak berada di status ini —
+ * dipakai syncJob() untuk mengenali log yang tertinggal dari status.
+ * `null` = tidak ada baris khas untuk status itu (Submitted: event
+ * DeliverableSubmitted tidak menghasilkan baris ledger).
+ */
+/** @internal diekspor supaya bisa diuji langsung */
+export function aktivitasWajib(status: number): readonly ActivityType[] | null {
+  switch (status) {
+    case 0: return ['deposit'];
+    case 1: return ['bond_lock'];
+    case 3: return ['structural_release'];
+    case 4: return ['dispute_raised'];
+    case 5: return ['final_release', 'jury_release'];
+    case 6: return ['final_refund', 'jury_refund', 'reclaim'];
+    default: return null;
+  }
+}
+
 export async function syncJob(jobId: number): Promise<HasilSync> {
   // Kebenaran job datang dari sini, BUKAN dari log. Satu panggilan, dan
   // hasilnya lengkap tanpa peduli seberapa tua job-nya -- itulah kenapa
@@ -525,31 +548,51 @@ export async function syncJob(jobId: number): Promise<HasilSync> {
   // Ledger: cari log di jendela terbatas. RPC menolak rentang di atas
   // 50.000 blok, filter topic atau tidak. Diambil SEBELUM menyegarkan job
   // karena `settled_by` hanya ada di event Settled.
-  const tip = await publicClient().getBlockNumber();
-  const dari = tip > SYNC_LOOKBACK ? tip - SYNC_LOOKBACK : DEPLOY_BLOCK;
+  //
+  // DIULANG kalau log tertinggal dari status (terbukti 27-09-2026, job 3):
+  // RPC publik adalah kumpulan node di belakang load balancer. Sync yang
+  // berjalan detik-detik setelah receipt bisa mendarat di node yang
+  // tertinggal satu-dua blok — getJob() sudah "ReleasedFull", tapi log
+  // Settled belum ada. Tanpa pengulangan, pencairan tidak tercatat di
+  // ledger (saldo "masih di kontrak" salah) dan settled_by kosong.
+  const dariBlok = (tip: bigint) => {
+    const d = tip > SYNC_LOOKBACK ? tip - SYNC_LOOKBACK : DEPLOY_BLOCK;
+    return d < DEPLOY_BLOCK ? DEPLOY_BLOCK : d;
+  };
+  const wajib = aktivitasWajib(Number(onChain.status));
 
-  const logs = (await publicClient().getContractEvents({
-    address: escrowAddress(),
-    abi: geoEscrowAbi,
-    // jobId bertanda `indexed` di semua event job, jadi penyaringannya
-    // dikerjakan RPC lewat topic -- bukan diunduh semua lalu dibuang di sini.
-    args: { jobId: BigInt(jobId) },
-    fromBlock: dari < DEPLOY_BLOCK ? DEPLOY_BLOCK : dari,
-    toBlock: tip,
-  })) as unknown as LogTerurai[];
-
-  const adaDiDb = await segarkanJob(jobId, onChain, settledByDari(logs));
-
-  // Tanpa baris di `jobs`, insert activity ditolak FK — lihat terapkanLogs().
-  if (!adaDiDb) {
-    return { jobId, adaDiChain: true, logs: logs.length, activityBaru: 0, jobTersentuh: [] };
-  }
-
+  let logs: LogTerurai[] = [];
   let activityBaru = 0;
-  for (const log of logs) {
-    const baris = keBarisActivity(log, onChain);
-    if (!baris) continue;
-    if (await tulisActivity(log, jobId, baris)) activityBaru++;
+  for (let percobaan = 0; ; percobaan++) {
+    const tip = await publicClient().getBlockNumber();
+    logs = (await publicClient().getContractEvents({
+      address: escrowAddress(),
+      abi: geoEscrowAbi,
+      // jobId bertanda `indexed` di semua event job, jadi penyaringannya
+      // dikerjakan RPC lewat topic -- bukan diunduh semua lalu dibuang di sini.
+      args: { jobId: BigInt(jobId) },
+      fromBlock: dariBlok(tip),
+      toBlock: tip,
+    })) as unknown as LogTerurai[];
+
+    const adaDiDb = await segarkanJob(jobId, onChain, settledByDari(logs));
+
+    // Tanpa baris di `jobs`, insert activity ditolak FK — lihat terapkanLogs().
+    if (!adaDiDb) {
+      return { jobId, adaDiChain: true, logs: logs.length, activityBaru: 0, jobTersentuh: [] };
+    }
+
+    for (const log of logs) {
+      const baris = keBarisActivity(log, onChain);
+      if (!baris) continue;
+      if (await tulisActivity(log, jobId, baris)) activityBaru++;
+    }
+
+    if (!wajib || percobaan >= SYNC_ULANG) break;
+    const { data, error } = await db().from('activity').select('id').eq('job_id', jobId).in('type', [...wajib]).limit(1);
+    if (error || (data ?? []).length > 0) break;
+    console.warn(`[indexer] job ${jobId}: status on-chain ${onChain.status} tapi log-nya belum terbaca (node RPC tertinggal?) — ulang ${percobaan + 1}/${SYNC_ULANG}`);
+    await new Promise((r) => setTimeout(r, SYNC_ULANG_JEDA_MS));
   }
 
   return {

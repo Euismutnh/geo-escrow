@@ -252,16 +252,22 @@ Sisa yang sengaja ditunda: tombol coba-lagi untuk `running_*` yang macet > 3 mnt
 
 **Tahap 1 — uji Fase 7 on-chain** (accept → submit → confirm) dengan freelancer `0xD28f…5F16`.
 
-**Tahap 2 — Fase 8 (dengan rencana yang dilengkapi)**
-- Tombol Verifikasi + "Segarkan dari blockchain"/auto-sync (S-25) + S-17 cek status on-chain.
-- Panel juri + skrip `setArbiter` (K4).
-- Reclaim (termasuk job yatim, S-14) · eskalasi dari `Submitted` & `Verifying` dengan `submittedAt` (S-26) + skrip `setVerifyTimeout` (S-18).
-- Coba lagi baseline/struktural + kirim ulang konten bertanda tangan (S-13) + `rejectStructural` otomatis (S-22).
-- Peringatan target ≤ baseline (S-15/K2) · audit verdict terikat chain (S-12) · mitigasi seed (S-04).
+**Tahap 1 — ✅ 26-09-2026:** Fase 7 teruji on-chain (job 0).
+
+**Tahap 2 — Fase 8 — hampir selesai (27-09-2026)**
+- ✅ Tombol Verifikasi + polling (S-25 diganti polling status hidup) · S-17 selesai di Tahap 0. **Jalur (a) teruji on-chain** (job 0).
+- ✅ Panel juri + `setArbiter` lewat **kartu admin owner** (tanda tangan wallet, bukan skrip — kunci owner tidak diekspor). **Jalur (c) teruji on-chain** (job 1, refund oleh arbiter, `settled_by=arbiter`).
+- ✅ Reclaim (job biasa + job yatim di /create) · ✅ eskalasi dari `Submitted` & `Verifying` dengan `submittedAt` (S-26). `setVerifyTimeout` sengaja TIDAK disediakan (S-18; keputusan 26-09) — eskalasi diuji sampai simulasi. Uji reclaim on-chain: job #2 berjalan.
+- ✅ Coba lagi baseline/struktural/verifikasi termasuk lock macet · ✅ kirim ulang konten bertanda tangan (S-13). ⏳ `rejectStructural` otomatis (S-22) → Fase 10.
+- ✅ Peringatan target ≤ baseline (K2) · ✅ audit verdict terikat chain (S-12, 8 cek) · ✅ mitigasi seed (S-04) — verdict **GEOv2** (disetujui 27-09): subset dari keccak256(seed ‖ hash blok confirmStructural ‖ jobId ‖ deliverableHash); tx konfirmasi divalidasi server & browser (tujuan, fungsi, jobId, tidak revert). Kontrak tidak berubah; verdict v1 (job 0 & 1) tetap lolos 8/8.
+- Temuan baru saat uji: `getAddress()` viem tidak memvalidasi checksum → diperbaiki (`lib/admin.ts`, `scripts/set-oracle.ts`).
 
 **Tahap 3 — Fase 9 polling.** Setelah S-01, polling DB cukup; tambah pemeriksaan jarang untuk status yang digerakkan pihak lain (`open`, `dispute`, `awaiting_verify`).
 
 **Tahap 4 — Fase 10 pengerasan.** S-08, S-09, S-19, S-21, S-23, S-27, CSP, aksesibilitas, observabilitas (job `error`/`running_*` > 3 mnt, status DB ≠ chain, saldo Oracle & arbiter), skema DB + `.env.example` di repo, daftar periksa deploy.
+- ✅ **Batch 1 (27-09): pengamanan Oracle sebelum Claude.** S-08 injeksi prompt — tiga lapis: deliverable jadi blok dokumen di giliran user (bukan system prompt), system prompt menegaskan dokumen = data, cek struktural menolak kalimat instruksi untuk AI (`INSTRUCTION_PATTERNS`, sempit; konten pemasaran jujur tetap lolos — diuji). S-09 biaya — budget minimum 0,0005 tBNB (form + server sebelum AI sungguhan), kuota 24 jam global (default 400) & per client (default 60) dihitung dari `oracle_runs` (query diuji ke Supabase). S-19 — mock di produksi ditolak kecuali `ALLOW_MOCK_ORACLE_IN_PRODUCTION=true`. Claude: refusal fallback `server-side-fallback-2026-07-01` (`fallbacks: "default"`), model penjawab dicatat dari `res.model`, dokumen di-cache antarpertanyaan. Model tetap `claude-opus-5`, effort `low`.
+- ✅ **Batch 2 (27-09): ketahanan backend.** S-20 — `POST /api/jobs` menyimpan budget & batas ambil dari kontrak saat chain menyala. S-21 — `/api/dev/seed` menolak saat `CHAIN_ENABLED=true` (seed menghapus job 1–6 = kontrak sungguhan; juga menutup CSRF-nya); `scripts/dev-verify.ts` & `dev-structural.ts` (mengubah job 4 & 3, verify bisa mengirim settle) ikut menolak. S-22 — konten bertanda tangan yang tidak datang/tidak cocok selama 2 jam → `rejectStructural` otomatis (patokan `submittedAt` kontrak), sapuan poll ikut memeriksa job tanpa konten. S-23 — hash verdict on-chain di-cache (terisi = selamanya, nol = 15 dtk). `openapi.json` dibuat ulang: identik. ⏳ S-27 (antrean nonce per proses) — dicatat, risiko rendah (tx Oracle jarang & berurutan per job); mitigasi penuh butuh satu worker/antrean terpusat.
+- ✅ **Batch 3 (27-09): frontend.** CSP halaman lewat `headers()` (varian tanpa nonce — halaman tetap statis): skrip hanya dari domain sendiri, `connect-src` = RPC publik dari `NEXT_PUBLIC_RPC_URL`, `/docs` punya CSP sendiri (cdnjs), `/api` tetap `default-src 'none'`. Diuji Chrome headless + wallet tiruan EIP-6963 terhubung lewat UI: **nol pelanggaran** di 10 halaman. Aksesibilitas: skip-link (Tab pertama), pengunci fokus modal wallet (12× Tab: 0 bocor), Escape + fokus kembali. 390px: nol scroll horizontal di 8 halaman. Judul tab Ringkasan dibetulkan (`title.absolute`).- ✅ **Batch 4 (27-09): operasional.** `.env.example` (nama + bentuk nilai, tanpa rahasia; `.env.local` terverifikasi tidak pernah masuk git), `supabase/schema-00-base.sql` (disalin dari blueprint §3.2), `scripts/dev-health.ts` (baca saja: job macet, DB≠chain, saldo gas, indexer, kuota AI — temuan pertama: indexer tertinggal ±711 ribu blok karena poll tak pernah jalan di lokal), `geo-escrow-deploy-checklist.md`. ⏳ Jadwal cron vs plan Vercel — keputusan tim.
 
 **Tahap 5 — keputusan kontrak v2** (K1).
 

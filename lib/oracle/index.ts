@@ -20,6 +20,15 @@ const PROVIDERS: Record<string, OracleProvider> = {
 };
 
 export function provider(): OracleProvider {
+  // S-19 (Fase 10): mock di produksi dengan chain menyala = dana sungguhan
+  // diputus oleh jawaban simulasi yang bisa dihitung di muka. Ditolak,
+  // kecuali deploy-nya memang sengaja memakai mock dan menyatakannya.
+  if (env.oracleProvider === 'mock' && env.isProduction && env.chainEnabled && !env.allowMockInProduction) {
+    throw new OracleError(
+      'Oracle mock ditolak di produksi. Set ORACLE_PROVIDER=claude, atau ALLOW_MOCK_ORACLE_IN_PRODUCTION=true untuk demo yang memang memakai mock.',
+      false
+    );
+  }
   return PROVIDERS[env.oracleProvider] ?? mockProvider;
 }
 

@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { Icon, type IconName } from '@/components/ui/Icon';
 import { shortHash } from '@/lib/explorer';
 import { auditVerdict, decisionMath, type CheckResult } from '@/lib/job-view';
-import { useReadContract } from 'wagmi';
+import { useReadContract, useTransaction, useTransactionReceipt } from 'wagmi';
 import { geoEscrowAbi } from '@/lib/abi';
 import { useChainInfo, useVerdict } from '@/lib/queries';
 import type { Job, OracleRun } from '@/lib/types';
@@ -26,9 +26,10 @@ function safe<T>(fn: () => T): T | null {
  * Audit verdict — layar yang membuktikan klaim "hasilnya diukur, bukan
  * diklaim" (§A12).
  *
- * Kelima pemeriksaannya DIULANG DI BROWSER dari data publik (lib/job-view.ts
+ * Kedelapan pemeriksaannya DIULANG DI BROWSER dari data publik (lib/job-view.ts
  * auditVerdict): subset dari seed, hit dari log AI, keputusan dari skor,
- * hash dari verdict — dan sejak Fase 5 hash on-chain juga dibaca browser
+ * hash dari verdict, dan — sejak Fase 8 (S-12) — keterikatan verdict ke
+ * kontrak: seed, parameter, hash pertanyaan & konten. Data on-chain dibaca browser
  * LANGSUNG dari kontrak (getJob lewat RPC publik), bukan ditanyakan ke
  * server. Server tetap dimintai kesimpulannya sendiri, hanya untuk
  * dibandingkan: kalau berbeda, itu sendiri temuan audit.
@@ -50,6 +51,19 @@ export function VerdictCard({ job, runs }: { job: Job; runs: OracleRun[] }) {
     query: { enabled: verdict !== null && !!contract && chainEnabled },
   });
   const onChainHash = onChain.data?.verdictHash;
+  const onChainSeed = onChain.data?.verificationSeed;
+  const onChainPool = onChain.data?.queryPoolHash;
+  const onChainDeliv = onChain.data?.deliverableHash;
+
+  // GEOv2: transaksi konfirmasi yang bloknya dipakai mengundi — dibaca
+  // browser langsung dari RPC publik, bukan dari server.
+  const confirmHash = verdict?.v === 'GEOv2' && /^0x[0-9a-fA-F]{64}$/.test(verdict.confirmTx) ? verdict.confirmTx as `0x${string}` : undefined;
+  const ctx = useTransaction({ hash: confirmHash, chainId: CHAIN.id, query: { enabled: !!confirmHash && chainEnabled, retry: 1 } });
+  const crc = useTransactionReceipt({ hash: confirmHash, chainId: CHAIN.id, query: { enabled: !!confirmHash && chainEnabled, retry: 1 } });
+  const confirmTx = useMemo(() => (!confirmHash ? undefined
+    : ctx.isPending || crc.isPending ? 'loading' as const
+    : ctx.data ? { to: ctx.data.to ?? null, input: ctx.data.input, blockHash: ctx.data.blockHash ?? null, status: crc.data?.status ?? null }
+    : null), [confirmHash, ctx.isPending, crc.isPending, ctx.data, crc.data?.status]);
 
   const audit = useMemo(() => {
     if (!verdict) return null;
@@ -58,9 +72,9 @@ export function VerdictCard({ job, runs }: { job: Job; runs: OracleRun[] }) {
       : !chainEnabled || !contract ? { onChain: null, chainEnabled: false }
       : onChain.isPending ? 'loading' as const
       : onChain.isError ? 'error' as const
-      : { onChain: onChainHash ?? null, chainEnabled: true };
+      : { onChain: onChainHash ?? null, chainEnabled: true, seed: onChainSeed ?? null, queryPoolHash: onChainPool ?? null, deliverableHash: onChainDeliv ?? null, contract: contract ?? null, confirmTx };
     return auditVerdict(job, verdict, runs, chain);
-  }, [job, verdict, runs, info.isPending, info.isError, chainEnabled, contract, onChain.isPending, onChain.isError, onChainHash]);
+  }, [job, verdict, runs, info.isPending, info.isError, chainEnabled, contract, onChain.isPending, onChain.isError, onChainHash, onChainSeed, onChainPool, onChainDeliv, confirmTx]);
 
   if (!verdict || !audit) {
     // Seed/dev bisa punya keputusan tanpa objek verdict. Produksi selalu

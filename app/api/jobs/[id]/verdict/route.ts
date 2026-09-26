@@ -1,7 +1,6 @@
 import { env } from '@/lib/env';
 import { getJob } from '@/lib/jobs-repo';
-import { verdictHash, canonicalVerdict, type Verdict } from '@/lib/verdict';
-import { deriveSubset, subsetSize } from '@/lib/vrf';
+import { verdictHash, canonicalVerdict, recomputeSubset, type Verdict } from '@/lib/verdict';
 import { decide } from '@/lib/scoring';
 import { readJobFromChain } from '@/lib/chain-server';
 import { parseJobId } from '@/lib/validate';
@@ -38,14 +37,12 @@ export const GET = handler(async (
   const verdict = job.verdict_json as Verdict;
 
   // ---- 1. Subset bisa diturunkan ulang dari seed? ----
+  // GEOv1: dari seed on-chain. GEOv2: dari seed efektif (seed + hash blok
+  // konfirmasi + jobId + hash konten) — lib/verdict.ts recomputeSubset.
   let subsetMatches = false;
   let recomputedSubset: number[] = [];
   try {
-    recomputedSubset = deriveSubset(
-      verdict.seed as `0x${string}`,
-      verdict.n,
-      subsetSize(verdict.n)
-    );
+    recomputedSubset = recomputeSubset(verdict);
     subsetMatches =
       JSON.stringify(recomputedSubset) === JSON.stringify(verdict.subset);
   } catch {
@@ -68,8 +65,7 @@ export const GET = handler(async (
 
   // ---- 3. Hash cocok dengan yang di blockchain? ----
   const recomputedHash = verdictHash(verdict);
-  const onChain = await readJobFromChain(BigInt(jobId));
-  const onChainHash = onChain?.verdictHash ?? null;
+  const onChainHash = await onChainVerdictHash(jobId);
 
   const hashMatchesStored =
     !!job.verdict_hash &&
@@ -112,3 +108,28 @@ export const GET = handler(async (
     chainEnabled: env.chainEnabled,
   });
 });
+
+/**
+ * Hash verdict on-chain, di-cache per proses (temuan audit S-23).
+ *
+ * Endpoint ini publik dan dulu membaca RPC (2 panggilan) di SETIAP
+ * permintaan — cara murah membanjiri RPC. Hash verdict yang sudah terisi
+ * TIDAK PERNAH berubah di kontrak (settle/raiseDispute menulisnya sekali;
+ * arbiterDecide memakai nilai yang sama), jadi aman disimpan selamanya.
+ * Hash nol (belum settle) disimpan sebentar saja.
+ */
+const verdictHashCache = new Map<number, { hash: string | null; until: number }>();
+const EMPTY_TTL_MS = 15_000;
+const CACHE_MAX = 500;
+
+async function onChainVerdictHash(jobId: number): Promise<string | null> {
+  const hit = verdictHashCache.get(jobId);
+  if (hit && hit.until > Date.now()) return hit.hash;
+
+  const onChain = await readJobFromChain(BigInt(jobId));
+  const hash = onChain?.verdictHash ?? null;
+  const filled = !!hash && !/^0x0*$/.test(hash);
+  if (verdictHashCache.size >= CACHE_MAX) verdictHashCache.clear();
+  verdictHashCache.set(jobId, { hash, until: filled ? Number.POSITIVE_INFINITY : Date.now() + EMPTY_TTL_MS });
+  return hash;
+}

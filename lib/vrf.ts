@@ -40,3 +40,40 @@ export function deriveSubset(
 
   return idx.slice(0, Math.min(k, n)).sort((a, b) => a - b);
 }
+
+const B32 = /^0x[0-9a-fA-F]{64}$/;
+
+/**
+ * Seed efektif GEOv2 (temuan audit S-04).
+ *
+ * Di BSC, `block.prevrandao` yang disimpan kontrak sebagai verificationSeed
+ * praktis KONSTAN (terukur: 2). Dengan seed itu saja, subset bisa dihitung
+ * siapa pun jauh sebelum verifikasi — freelancer tinggal mengoptimasi
+ * konten untuk pertanyaan yang ia tahu akan terpilih.
+ *
+ * Seed efektif mencampur bahan yang semuanya PUBLIK dan TERKUNCI sebelum
+ * verifikasi, tapi TIDAK diketahui freelancer saat ia menandatangani:
+ *   seedOnChain       — dari kontrak (tetap disertakan)
+ *   confirmBlockHash  — hash blok tempat confirmStructural masuk; blok itu
+ *                       belum ada saat submitDeliverable
+ *   jobId             — supaya dua job di blok yang sama tidak berbagi subset
+ *   deliverableHash   — mengikat undian ke konten yang ditandatangani
+ * Siapa pun bisa menghitung ulang: keccak256(seed ‖ blockHash ‖ uint256(jobId) ‖ deliverableHash).
+ */
+export function effectiveSeedV2(p: {
+  seed: string;
+  confirmBlockHash: string;
+  jobId: number;
+  deliverableHash: string;
+}): `0x${string}` {
+  for (const [nama, v] of [['seed', p.seed], ['confirmBlockHash', p.confirmBlockHash], ['deliverableHash', p.deliverableHash]] as const) {
+    if (!B32.test(v)) throw new Error(`effectiveSeedV2: ${nama} harus bytes32 (0x + 64 heksa)`);
+  }
+  if (!Number.isSafeInteger(p.jobId) || p.jobId < 0) throw new Error('effectiveSeedV2: jobId tidak sah');
+  return keccak256(concatHex([
+    p.seed.toLowerCase() as `0x${string}`,
+    p.confirmBlockHash.toLowerCase() as `0x${string}`,
+    toHex(p.jobId, { size: 32 }),
+    p.deliverableHash.toLowerCase() as `0x${string}`,
+  ]));
+}

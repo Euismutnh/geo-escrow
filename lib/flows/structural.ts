@@ -3,7 +3,9 @@ import { getJob, acquireLock, releaseLock } from '../jobs-repo';
 import { syncSetelahTx } from '../indexer';
 import { publicErrorMessage } from '../http';
 import { confirmStructuralOnChain, readJobFromChain, rejectStructuralOnChain } from '../chain-server';
-import { contentAllowed, HASH_MISMATCH_ERROR, lockedDeliverableHash } from '../deliverable-lock';
+import {
+  contentAllowed, HASH_MISMATCH_ERROR, lockedDeliverableHash, signedContentGraceExpired, SIGNED_CONTENT_MISSING_REASON,
+} from '../deliverable-lock';
 import { env } from '../env';
 import { contentHash } from '../hash';
 import { checkStructural } from '../structural';
@@ -55,7 +57,12 @@ export async function confirmStructural(jobId: number): Promise<ConfirmResult> {
   // jelas-jelas belum siap (indexer memanggil ini cukup sering).
   const preview = await getJob(jobId);
   if (preview.status !== 'Submitted') return { ok: false, skipped: `status ${preview.status}` };
-  if (!preview.deliverable_content) return { ok: false, skipped: 'menunggu konten' };
+  // Tanpa konten: tunggu — kecuali masa tunggu konten bertanda tangan sudah
+  // habis (S-22), maka lanjut mengambil lock untuk mengembalikannya.
+  const submittedMs = preview.deliverable_submitted_at ? Date.parse(preview.deliverable_submitted_at) : NaN;
+  if (!preview.deliverable_content && !(env.chainEnabled && Number.isFinite(submittedMs) && signedContentGraceExpired(submittedMs / 1000, Date.now()))) {
+    return { ok: false, skipped: 'menunggu konten' };
+  }
 
   const locked = await acquireLock(jobId, ['idle', 'error'], 'running_structural');
   if (!locked) return { ok: false, skipped: 'sedang dikerjakan proses lain' };
@@ -71,7 +78,23 @@ export async function confirmStructural(jobId: number): Promise<ConfirmResult> {
     }
 
     const content = job.deliverable_content;
+
+    // Konten bertanda tangan tidak pernah sampai (atau tidak cocok) dan
+    // masa tunggunya habis → kembalikan ke Accepted supaya freelancer bisa
+    // mengirim ulang, alih-alih tertahan sampai eskalasi 7 hari (S-22).
+    // Patokan waktunya dari KONTRAK (submittedAt), bukan kolom DB.
+    const kembalikan = async (sebab: string): Promise<ConfirmResult> => {
+      const { hash: txHash } = await rejectStructuralOnChain(BigInt(jobId), SIGNED_CONTENT_MISSING_REASON);
+      await releaseLock(jobId, 'idle', SIGNED_CONTENT_MISSING_REASON);
+      await syncSetelahTx(jobId, 'structural');
+      return { ok: false, skipped: sebab, rejectedOnChain: txHash };
+    };
+
     if (!content) {
+      const oc = env.chainEnabled ? await readJobFromChain(BigInt(jobId)) : null;
+      if (oc && Number(oc.status) === 2 && signedContentGraceExpired(oc.submittedAt, Date.now())) {
+        return await kembalikan('konten bertanda tangan tidak pernah diterima');
+      }
       await releaseLock(jobId, 'idle');
       return { ok: false, skipped: 'menunggu konten' };
     }
@@ -96,6 +119,9 @@ export async function confirmStructural(jobId: number): Promise<ConfirmResult> {
       return { ok: false, skipped: 'hash deliverable on-chain belum terbaca' };
     }
     if (!contentAllowed(signed, computed)) {
+      if (env.chainEnabled && onChain && Number(onChain.status) === 2 && signedContentGraceExpired(onChain.submittedAt, Date.now())) {
+        return await kembalikan('konten tidak cocok dengan hash, masa tunggu habis');
+      }
       // 'error' bukan jalan buntu: acquireLock menerima ['idle','error'],
       // jadi sync berikutnya mencoba lagi begitu konten yang benar dikirim.
       await releaseLock(jobId, 'error', HASH_MISMATCH_ERROR);
@@ -179,7 +205,8 @@ export async function sweepSubmitted(opts: { max: number; deadlineMs: number }):
     .select('job_id')
     .eq('status', 'Submitted')
     .in('job_state', ['idle', 'error'])
-    .not('deliverable_content', 'is', null)
+    // Termasuk yang BELUM punya konten: confirmStructural mengembalikannya
+    // ke Accepted kalau masa tunggu konten bertanda tangan habis (S-22).
     .order('job_state_at', { ascending: true })
     .limit(opts.max);
 

@@ -35,11 +35,12 @@ export function useWallet() {
 }
 
 /** Saldo tBNB sebuah alamat di BSC Testnet (bukan di jaringan wallet saat ini). */
-export function useTbnbBalance(address: `0x${string}` | string | null | undefined) {
+/** `pollMs`: segarkan berkala (mis. saldo kontrak escrow yang berubah oleh transaksi siapa pun). */
+export function useTbnbBalance(address: `0x${string}` | string | null | undefined, pollMs?: number) {
   return useBalance({
     address: address as `0x${string}` | undefined,
     chainId: CHAIN.id,
-    query: { enabled: !!address },
+    query: { enabled: !!address, refetchInterval: pollMs ?? false },
   });
 }
 

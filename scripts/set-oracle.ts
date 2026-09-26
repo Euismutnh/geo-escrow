@@ -9,7 +9,7 @@
  *
  * KUNCI OWNER TIDAK PERNAH DISIMPAN. Ia diketik ke prompt yang tidak
  * menampilkan ketikan, dipakai sekali di memori, lalu proses berakhir.
- * Tidak ditulis ke .env.local (yang di repo ini ikut dilacak git), tidak
+ * Tidak ditulis ke .env.local (file itu TIDAK dilacak git — .gitignore `.env*` — tapi kunci owner tetap tidak pantas disimpan di disk), tidak
  * lewat argumen baris perintah (yang masuk riwayat shell dan terlihat di
  * daftar proses), dan tidak pernah dicetak.
  */

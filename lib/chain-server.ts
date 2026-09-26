@@ -1,6 +1,7 @@
 import {
   createPublicClient,
   createWalletClient,
+  decodeFunctionData,
   http,
   type Address,
   type Hex,
@@ -618,4 +619,67 @@ export async function readChainInfo(): Promise<ChainInfo> {
 
   cache = { at: Date.now(), data };
   return data;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// BLOK KONFIRMASI STRUKTURAL — bahan seed efektif GEOv2 (S-04)
+// ══════════════════════════════════════════════════════════════════
+
+export interface StructuralConfirm {
+  tx: Hex;
+  blockHash: Hex;
+}
+
+/**
+ * Transaksi confirmStructural(jobId) yang SAH dan blok tempatnya masuk.
+ *
+ * `hintTx` = hash tx dari tabel activity (baris structural_release yang
+ * ditulis indexer). Divalidasi, bukan dipercaya: tujuannya kontrak ini,
+ * fungsinya confirmStructural, argumennya jobId ini, dan tidak revert.
+ * Tanpa validasi, siapa pun yang bisa menulis baris itu bisa memilih blok
+ * lain — dan dengan itu memilih subset.
+ *
+ * Header & transaksi lama tetap terbaca di RPC publik (diuji 27-09-2026:
+ * blok 2,6 juta blok lalu), berbeda dari log yang dipangkas ±11 jam — jadi
+ * jalur utama tidak bergantung pada log. Log hanya cadangan kalau baris
+ * activity belum ada.
+ */
+export async function readStructuralConfirm(jobId: bigint, hintTx: string | null): Promise<StructuralConfirm> {
+  const kontrak = escrowAddress().toLowerCase();
+
+  if (hintTx && /^0x[0-9a-fA-F]{64}$/.test(hintTx)) {
+    const tx = await publicClient().getTransaction({ hash: hintTx as Hex });
+    let valid = false;
+    try {
+      const d = decodeFunctionData({ abi: geoEscrowAbi, data: tx.input });
+      valid = tx.to?.toLowerCase() === kontrak && d.functionName === 'confirmStructural' && (d.args?.[0] as bigint) === jobId;
+    } catch { valid = false; }
+    if (valid && tx.blockHash) {
+      // Tx yang revert juga punya blok — jangan sampai itu yang dipakai.
+      const receipt = await publicClient().getTransactionReceipt({ hash: hintTx as Hex }).catch(() => null);
+      if (receipt && receipt.status !== 'success') valid = false;
+      if (valid) return { tx: hintTx.toLowerCase() as Hex, blockHash: tx.blockHash.toLowerCase() as Hex };
+    }
+    console.warn(`[chain] tx ${hintTx} bukan confirmStructural(${jobId}) yang sah — mencari lewat log`);
+  }
+
+  // Cadangan: event StructuralConfirmed di jendela log yang masih disimpan RPC.
+  const tip = await publicClient().getBlockNumber();
+  const logs = await publicClient().getContractEvents({
+    address: escrowAddress(),
+    abi: geoEscrowAbi,
+    eventName: 'StructuralConfirmed',
+    args: { jobId },
+    fromBlock: tip > 45_000n ? tip - 45_000n : 0n,
+    toBlock: tip,
+  });
+  const last = logs[logs.length - 1];
+  if (last?.transactionHash && last.blockHash) {
+    return { tx: last.transactionHash.toLowerCase() as Hex, blockHash: last.blockHash.toLowerCase() as Hex };
+  }
+
+  throw new ApiError(
+    'WRONG_STATUS',
+    'Blok konfirmasi struktural belum ditemukan — segarkan data kontrak dari blockchain, lalu coba verifikasi lagi.'
+  );
 }

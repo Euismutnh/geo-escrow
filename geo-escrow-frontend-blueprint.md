@@ -1257,7 +1257,14 @@ npx tsx scripts/dev-chain-read.ts    # 20 pemeriksaan jalur baca — harus hijau
 > macet · `lib/invalidate.ts` dipakai TxButton & tombol Oracle. Bentuk respons endpoint tidak berubah.
 > **Prediksi job 0 (mock, seed 0x02):** subset [1,2,3,4], hit 4/4, `release` → sisa 0,0024 + bond
 > 0,00015 = 0,00255 ke freelancer.
-> **Bagian 2 kode selesai 2026-09-26 — menunggu uji on-chain:** `components/admin/ArbiterAdmin.tsx`
+> **Bagian 2 ✅ TERUJI ON-CHAIN 2026-09-26 23.31 — jalur (c) zona abu tuntas dari UI:** owner
+> `setArbiter` → `0xdCe0…8Df7` lewat kartu admin (tanda tangan Rabby) · job #1 "Batik Sekar Lasem" (n=3,
+> target 3): baseline 1/3, verifikasi 2/3 → `raiseDispute` = prediksi · arbiter `arbiterDecide(1,false)`
+> (tx 0x4cf4d39b…) → `Refunded`, **`settled_by=arbiter`** (S-11 terbukti), badge "Juri: refund",
+> `jury_refund` 0,0017 (sisa + bond) + `bond_slash` rincian → ledger job 1 = 0 = saldo kontrak on-chain.
+> Hash verdict DB = chain = dihitung ulang.
+>
+> **Bagian 2 (kode):** `components/admin/ArbiterAdmin.tsx`
 > (kartu "Ganti arbiter" di Ringkasan, HANYA wallet owner; owner menandatangani `setArbiter` di wallet —
 > kunci owner tidak diekspor) · `lib/admin.ts` `checkNewArbiter` (checksum strict, bukan owner/Oracle/
 > arbiter sekarang) · `ArbiterDecision` di JuryCard (dua tombol `arbiterDecide`, hanya wallet arbiter) ·
@@ -1267,7 +1274,23 @@ npx tsx scripts/dev-chain-read.ts    # 20 pemeriksaan jalur baca — harus hijau
 > **Job demo zona abu (dihitung dari mock, tidak bergantung seed karena n=3 → subset = semua):**
 > brand "Batik Sekar Lasem", 3 pertanyaan (lihat percakapan 26-09), target 3 → baseline 1/3,
 > verifikasi 2/3 → `dispute`.
-> Sisa Fase 8: reclaim, eskalasi, kirim ulang konten (hash tidak cocok),
+> **Bagian 3 kode selesai 2026-09-26:** `ReclaimAction` (tombol "Tarik kembali dana", hanya client, saat
+> Open + batas ambil lewat) · `EscalateAction` ("Eskalasi ke arbiter", siapa pun, saat macet) ·
+> `isVerifyStuck` ditulis ulang mengikuti syarat kontrak `escalateStuckJob` (S-26): Submitted **atau**
+> Verifying, patokan `deliverable_submitted_at` (= `jobs().submittedAt`), `>` ketat, Oracle yang sedang
+> bekerja tidak diganggu kecuali lock-nya macet · timeline menandai macet di langkah yang benar.
+> Uji on-chain reclaim: job baru batas ambil +1 jam. Eskalasi: verifyTimeout 7 hari → tanpa mengubah
+> kontrak hanya bisa diuji sampai simulasi ("GEO: belum timeout").
+> **Bagian 4 kode selesai 2026-09-27:** S-12 audit verdict 8 cek (+ seed = on-chain, parameter = job,
+> hash pertanyaan & konten = komitmen on-chain; bentuk verdict tetap GEOv1) — job 0 & 1 nyata lolos 8/8,
+> seed karangan tertangkap di uji · K2 peringatan target ≤ baseline (Radar, Ambil kontrak, petunjuk form)
+> · S-13 `ResendSignedContent` (freelancer, hanya kasus hash tidak cocok; tombol aktif hanya bila
+> keccak teks = hash on-chain) · `waitForPickup` agar "Coba konfirmasi lagi" tidak menyegarkan sebelum
+> Oracle mengambil lock.
+> **Bagian 5 kode selesai 2026-09-27 — S-04 GEOv2:** `lib/vrf.ts` `effectiveSeedV2` · `lib/verdict.ts` union v1/v2 + `recomputeSubset` (satu sumber untuk alur, route, browser; kanonik v1 tidak berubah) · `readStructuralConfirm` (petunjuk tx dari activity divalidasi; cadangan log) · verifikasi menolak konten ≠ hash on-chain · audit browser membaca tx + receipt konfirmasi (`useTransaction`/`useTransactionReceipt`) · OpenAPI diperbarui. Uji: 499 lulus; data nyata job 0 & 1 tetap 8/8; petunjuk tx salah ditolak. Menunggu uji on-chain job GEOv2 pertama (n ≥ 4).
+> **GEOv2 ✅ TERUJI ON-CHAIN 2026-09-27 00.57 (job #3, n=5):** subset [0,1,2,3] = pertanyaan #1–#4 (v1 dengan seed 0x02 akan memilih #2–#5 — bukti undian tidak lagi bisa ditebak), audit browser 8/8 termasuk "Seed & blok undian = on-chain", hash verdict = chain. **Bug ditemukan uji:** log Settled job 3 tidak tercatat (node RPC di belakang load balancer tertinggal saat sync pasca-settle) → ledger "masih di kontrak 0,00085", `settled_by` kosong. Diperbaiki: `syncJob` membaca ulang log (≤3×, jeda 1,5 dtk) bila baris wajib untuk status on-chain belum ada (`aktivitasWajib`).
+> **Reclaim ✅ TERUJI ON-CHAIN 2026-09-27 01.50 (job #2):** batas ambil lewat → tombol "Tarik kembali dana" (client) → `reclaimExpired` (tx 0xec5df20e…) → `Refunded`, baris `reclaim` 0,0005 ke client, langkah 3–6 "Dilewati", status dana "Ditarik kembali oleh client". Ledger job 2 = 0; **saldo kontrak on-chain = 0** (keempat job tuntas). Peringatan K2 kini disembunyikan untuk job yang sudah selesai.
+> **FASE 8 SELESAI** — jalur (a) cair, (c) zona abu→juri (refund + slash), (e) reclaim, dan GEOv2 teruji on-chain; (f) eskalasi teruji sampai simulasi (verifyTimeout 7 hari, keputusan 26-09). Catatan lama: kirim ulang konten (hash tidak cocok),
 > peringatan target ≤ baseline (K2), audit verdict terikat chain (S-12), mitigasi seed (S-04).
 
 **Tujuan.** Menutup semua cabang yang tersisa — termasuk yang tidak punya gambar.
@@ -1335,6 +1358,13 @@ Oracle dan owner tidak perlu disentuh — keduanya sudah punya ratusan transaksi
 
 # Fase 9 — Polling & keadaan hidup
 
+> **Status: kode selesai 2026-09-27.** Satu aturan di `lib/status.ts` `pollIntervalFor`: 4 dtk bila ada
+> job hidup di layar (Oracle bekerja, lock tidak macet), 30 dtk bila ada job yang menunggu aksi pihak
+> lain (Open/Accepted/Verifying/Disputed), berhenti bila semua selesai. Dipakai `useJob` (+ cepat selama
+> aksi Oracle berjalan) dan `jobsQuery` (daftar Pasar/Ringkasan/Kontrak saya + hitungan tab). Stats,
+> Aktivitas, Log Oracle, dan saldo kontrak escrow: 30 dtk. Tab tersembunyi berhenti (bawaan react-query).
+> Diuji murni di check-pure; uji jaringan manual sesuai "Cara verifikasi" di bawah.
+
 **Tujuan.** UI bergerak sendiri saat Oracle bekerja, tanpa Realtime dan tanpa
 membakar kuota.
 
@@ -1374,6 +1404,15 @@ refetchInterval: (q) =>
 ---
 
 # Fase 10 — Pengerasan
+
+> **Status: kode selesai 2026-09-27** (rincian per batch di `geo-escrow-audit-sistem.md` §6 Tahap 4).
+> Oracle siap Claude (S-08 injeksi prompt 3 lapis, S-09 budget minimum + kuota AI, S-19 mock ditolak di
+> produksi, refusal fallback) · backend (S-20, S-21 seed & skrip dev dikunci, S-22 rejectStructural
+> otomatis, S-23 cache hash verdict) · CSP halaman tanpa nonce — **nol pelanggaran** di 10 halaman dengan
+> wallet tiruan terhubung · skip-link, pengunci fokus modal, 390px nol scroll horizontal · `.env.example`,
+> `supabase/schema-00-base.sql`, `scripts/dev-health.ts`, `geo-escrow-deploy-checklist.md`.
+> `openapi.json` dibuat ulang: identik. Sisa di tangan tim: uji CSP dengan wallet **sungguhan** + satu
+> transaksi, Lighthouse ≥ 90, jadwal cron vs plan Vercel, uji pertama Claude (biaya nyata).
 
 **Tujuan.** Melunasi utang yang sengaja ditunda, dan memastikan build produksi
 jadi di mesin ini.

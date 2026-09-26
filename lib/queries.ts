@@ -1,7 +1,7 @@
 import { useIsMutating, useQuery } from '@tanstack/react-query';
 import { api } from './api';
 import type { ChainInfo } from './chain-server';
-import { isLive, type MarketFilter } from './status';
+import { POLL_FAST_MS, POLL_SLOW_MS, pollIntervalFor, type MarketFilter } from './status';
 import type { ActivityEntry, Job, OracleRun } from './types';
 import type { Verdict } from './verdict';
 
@@ -53,6 +53,9 @@ export function jobsQuery(o: JobsParams = {}) {
   return {
     queryKey: ['jobs', params] as const,
     queryFn: () => api<JobList>('/api/jobs' + qs(params)),
+    // Fase 9: ikut menyegarkan diri selama ada job yang belum selesai di
+    // daftar ini — termasuk hitungan tab Pasar, yang memakai kueri ini juga.
+    refetchInterval: (q: { state: { data?: JobList } }) => (q.state.data ? pollIntervalFor(q.state.data.jobs, Date.now()) : false),
   };
 }
 
@@ -66,13 +69,15 @@ export function useJobs(o: JobsParams = {}) {
 
 export function useStats(wallet?: string | null) {
   const w = addr(wallet);
-  return useQuery({ queryKey: ['stats', w ?? null], queryFn: () => api<Stats>('/api/stats' + qs({ wallet: w })) });
+  // Angka ringkasan berubah setiap ada job yang berpindah status — jarang, jadi jeda lambat.
+  return useQuery({ queryKey: ['stats', w ?? null], queryFn: () => api<Stats>('/api/stats' + qs({ wallet: w })), refetchInterval: POLL_SLOW_MS });
 }
 
 export function useActivity(o: { jobId?: number; limit?: number } = {}) {
   return useQuery({
     queryKey: ['activity', o],
     queryFn: async () => (await api<{ activity: ActivityEntry[] }>('/api/activity' + qs(o))).activity,
+    refetchInterval: POLL_SLOW_MS,
   });
 }
 
@@ -80,6 +85,7 @@ export function useOracleLog(o: { phase?: 'baseline' | 'verification'; jobId?: n
   return useQuery({
     queryKey: ['oracle-log', o],
     queryFn: async () => (await api<{ runs: OracleRunWithBrand[] }>('/api/oracle-log' + qs(o))).runs,
+    refetchInterval: POLL_SLOW_MS,
   });
 }
 
@@ -105,8 +111,8 @@ export interface VerdictAudit {
   chainEnabled: boolean;
 }
 
-/** Jeda polling halaman detail (blueprint Fase 9). */
-export const POLL_MS = 4_000;
+/** Jeda polling halaman detail saat Oracle bekerja (blueprint Fase 9). */
+export const POLL_MS = POLL_FAST_MS;
 
 /**
  * Kunci mutasi untuk aksi yang MEMICU kerja Oracle di server (verifikasi,
@@ -122,12 +128,10 @@ export const oracleActionKey = (kind: OracleActionKind, jobId: number) => ['orac
  * sini: GET /api/jobs/:id/oracle-log memanggil getRuns() yang SAMA, jadi
  * request kedua hanya akan mengambil data yang sudah ada.
  *
- * POLLING (Fase 9, di satu tempat ini): tiap POLL_MS HANYA kalau
- *   - status job hidup (baseline_running / submitted_pending / verifying)
- *     dan prosesnya tidak macet — yang macet menunggu tombol coba-lagi,
- *     bukan ditanya terus; atau
- *   - aksi Oracle dari halaman ini sedang berjalan.
- * Job yang sudah settle = nol permintaan berulang. Tab tersembunyi juga
+ * POLLING (Fase 9): tiap POLL_MS kalau status job hidup (dan tidak macet)
+ * atau aksi Oracle dari halaman ini sedang berjalan; tiap POLL_SLOW_MS kalau
+ * job menunggu aksi pihak lain (lib/status.ts pollIntervalFor). Job yang
+ * sudah settle = nol permintaan berulang. Tab tersembunyi juga
  * berhenti: refetchIntervalInBackground bawaan react-query = false.
  */
 export function useJob(jobId: number) {
@@ -139,8 +143,10 @@ export function useJob(jobId: number) {
       return { job: r.job, runs: r.runs ?? [], activity: r.activity ?? [] } satisfies JobDetail;
     },
     refetchInterval: (q) => {
+      if (acting) return POLL_MS;
       const job = q.state.data?.job;
-      return acting || (job && isLive(job, Date.now())) ? POLL_MS : false;
+      // Hidup → cepat; menunggu pihak lain → lambat; selesai → berhenti.
+      return job ? pollIntervalFor([job], Date.now()) : false;
     },
   });
 }

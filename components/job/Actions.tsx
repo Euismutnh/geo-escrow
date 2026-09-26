@@ -12,12 +12,14 @@ import { ApiClientError } from '@/lib/api';
 import type { ChainInfo } from '@/lib/chain-server';
 import { acceptGuard, draftKey, ensureDeliverable, postDeliverable, submitGuard } from '@/lib/deliverable';
 import { shortHash } from '@/lib/explorer';
+import { formatTBNB } from '@/lib/format';
+import { isAcceptExpired, TARGET_BASELINE_WARNING, targetNotAboveBaseline } from '@/lib/job-view';
 import { contentHash } from '@/lib/hash';
 import { LIMITS } from '@/lib/job-input';
 import type { UiStatus } from '@/lib/status';
 import { textHitsBrand } from '@/lib/brand-match';
 import { checkStructural, MIN_DELIVERABLE_LENGTH } from '@/lib/structural';
-import { isBusy, type TxPhase } from '@/lib/tx';
+import { isBusy, type Relation, type TxPhase } from '@/lib/tx';
 import type { ActivityEntry, Job } from '@/lib/types';
 import { CHAIN } from '@/lib/wagmi';
 
@@ -70,6 +72,7 @@ export function AcceptCard({ job, ui, chain, now }: { job: Job; ui: UiStatus; ch
       <p className="hint" style={{ margin: 0 }}>
         Bond dikembalikan penuh jika target tercapai, dan dialihkan ke client jika tidak. Baseline saat ini {job.baseline_score ?? '—'} dari {job.queries.length}; target {job.target_count}.
       </p>
+      {targetNotAboveBaseline(job) && <div className="note note-warn"><Icon name="alert" /><div>{TARGET_BASELINE_WARNING}</div></div>}
       <TxButton
         label="Ambil kontrak · kunci bond"
         icon="lock"
@@ -262,5 +265,56 @@ export function ArbiterDecision({ job }: { job: Job }) {
         />
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// Tarik kembali dana — reclaimExpired(jobId)
+// ---------------------------------------------------------------------
+
+/**
+ * Tidak ada freelancer sampai batas ambil lewat → client menarik SELURUH
+ * budget. Kontrak: hanya client, hanya status Open, dan block.timestamp >
+ * acceptDeadline (ketat — detik batasnya sendiri masih ditolak; simulasi
+ * TxButton yang menangkapnya, dengan alasan dari kontrak).
+ */
+export function ReclaimAction({ job, rel, now }: { job: Job; rel: Relation; now: number | null }) {
+  if (rel !== 'client') {
+    return <p className="hint" style={{ margin: 0 }}>Hanya client kontrak ini yang bisa menarik kembali budget-nya.</p>;
+  }
+  return (
+    <TxButton
+      label="Tarik kembali dana"
+      icon="undo"
+      syncJobId={job.job_id}
+      allowed={job.status === 'Open' && isAcceptExpired(job, now) ? { ok: true } : { ok: false, reason: 'Batas ambil belum lewat.' }}
+      prepare={() => ({ functionName: 'reclaimExpired', args: [BigInt(job.job_id)] as const })}
+      doneMessage={`Budget ${formatTBNB(job.budget_wei)} kembali ke wallet Anda.`}
+    />
+  );
+}
+
+// ---------------------------------------------------------------------
+// Eskalasi job macet — escalateStuckJob(jobId)
+// ---------------------------------------------------------------------
+
+/**
+ * Oracle tidak menyelesaikan job dalam verifyTimeout sejak hasil dikirim →
+ * SIAPA PUN boleh meneruskannya ke arbiter (kontrak tidak membatasi
+ * pengirim). Dana tidak berpindah di transaksi ini: status jadi Disputed
+ * dan arbiter yang memutus. Syarat waktunya dari isVerifyStuck(), yang
+ * menyalin syarat kontrak.
+ */
+export function EscalateAction({ job, stuck }: { job: Job; stuck: boolean }) {
+  return (
+    <TxButton
+      label="Eskalasi ke arbiter"
+      icon="scale"
+      variant="secondary"
+      syncJobId={job.job_id}
+      allowed={stuck ? { ok: true } : { ok: false, reason: 'Belum melewati batas waktu verifikasi kontrak.' }}
+      prepare={() => ({ functionName: 'escalateStuckJob', args: [BigInt(job.job_id)] as const })}
+      doneMessage="Kontrak diteruskan ke arbiter. Dana tetap di kontrak sampai arbiter memutus."
+    />
   );
 }

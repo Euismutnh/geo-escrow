@@ -175,6 +175,14 @@ export const POST = handler(async () => {
   if (env.isProduction) {
     return fail('VALIDATION', 'Seed hanya tersedia di development');
   }
+  // Temuan audit S-21: seed MENGHAPUS job 1–6 lalu menulis data palsu. Saat
+  // chain menyala, job 1–6 adalah kontrak SUNGGUHAN (job on-chain dimulai
+  // dari 0) — metadata-nya akan lenyap dari aplikasi walau dananya di
+  // kontrak. Endpoint ini juga tanpa autentikasi, jadi halaman mana pun di
+  // browser yang sama bisa memicunya (CSRF ke localhost).
+  if (env.chainEnabled) {
+    return fail('WRONG_STATUS', 'Seed ditolak saat CHAIN_ENABLED=true — job 1–6 adalah kontrak on-chain sungguhan');
+  }
 
   const ids = SEEDS.map((s) => s.job_id);
 

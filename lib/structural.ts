@@ -13,7 +13,26 @@ import { textHitsBrand } from './brand-match';
  */
 export const MIN_DELIVERABLE_LENGTH = 40;
 
-export type StructuralFailure = 'too_short' | 'brand_not_mentioned';
+export type StructuralFailure = 'too_short' | 'brand_not_mentioned' | 'instruction_like';
+
+/**
+ * Pola kalimat yang ditujukan ke MODEL AI, bukan ke pembaca manusia —
+ * upaya injeksi prompt ke Oracle (temuan audit S-08). Lapis ketiga setelah
+ * pemisahan dokumen dan penegasan di system prompt (lib/oracle/prompt.ts).
+ *
+ * SENGAJA SEMPIT: yang ditolak hanya kalimat yang tidak punya alasan sah
+ * berada di konten pemasaran. "Kami selalu merekomendasikan…" atau "wajib
+ * dicoba" TETAP lolos — menolaknya berarti menghukum konten yang jujur.
+ * Diuji di scripts/check-input.ts.
+ */
+export const INSTRUCTION_PATTERNS: readonly RegExp[] = [
+  /\babaikan\s+(semua\s+|seluruh\s+)?(instruksi|perintah|aturan|prompt)\b/i,
+  /\bignore\s+(all\s+|any\s+|the\s+)?(previous\s+|prior\s+|above\s+|earlier\s+)?(instructions?|prompts?|rules)\b/i,
+  /\b(system\s+prompt|prompt\s+sistem)\b/i,
+  /\b(kamu|anda)\s+(adalah|sekarang)\s+(sebuah\s+)?(ai|asisten|model\s+bahasa|chatbot)\b/i,
+  /\byou\s+are\s+(now\s+)?(an?\s+)?(ai|assistant|language\s+model|chatbot)\b/i,
+  /^\s*(system|assistant|sistem|asisten)\s*:/im,
+];
 
 export interface StructuralResult {
   pass: boolean;
@@ -24,9 +43,10 @@ export interface StructuralResult {
 /**
  * Structural check -- gerbang cepat sebelum verifikasi AI.
  *
- * Dua syarat, sama persis dengan prototipe:
- *   1. Panjang >= MIN_DELIVERABLE_LENGTH
- *   2. Menyebut nama brand secara eksplisit
+ * Syaratnya:
+ *   1. Panjang >= MIN_DELIVERABLE_LENGTH          (prototipe)
+ *   2. Tidak memuat kalimat instruksi untuk AI     (Fase 10, S-08)
+ *   3. Menyebut nama brand secara eksplisit        (prototipe)
  *
  * Syarat kedua bukan formalitas: isi deliverable dipakai sebagai KONTEKS
  * yang dibaca Oracle saat verifikasi. Kalau brandnya sendiri tidak
@@ -45,6 +65,14 @@ export function checkStructural(content: string, brand: string): StructuralResul
       pass: false,
       reason: 'too_short',
       message: `Konten terlalu pendek (minimal ${MIN_DELIVERABLE_LENGTH} karakter, dikirim ${text.length})`,
+    };
+  }
+
+  if (INSTRUCTION_PATTERNS.some((re) => re.test(text))) {
+    return {
+      pass: false,
+      reason: 'instruction_like',
+      message: 'Konten memuat kalimat yang ditujukan ke AI (mis. "abaikan instruksi", "system prompt"). Tulis konten untuk pembaca manusia.',
     };
   }
 

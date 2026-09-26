@@ -23,6 +23,8 @@ import { NavLinks } from './NavLinks';
 export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="app">
+      {/* Fase 10 aksesibilitas: pengguna keyboard tidak perlu melewati seluruh sidebar. */}
+      <a className="skip" href="#main">Lewati ke konten</a>
       <aside className="side">
         <Link className="brand" href="/">
           <BrandMark size={28} />
@@ -48,7 +50,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <AccountButton />
           </div>
         </header>
-        <main className="content" id="main">
+        <main className="content" id="main" tabIndex={-1}>
           <NetBanner />
           {children}
         </main>

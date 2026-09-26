@@ -147,6 +147,15 @@ export const POST = handler(async (req: NextRequest) => {
   // ---------- simpan ----------
   // budget_wei & status di sini adalah nilai AWAL saat job dibuat.
   // Setelah ini, hanya indexer yang berwenang mengubahnya (§2.1).
+  //
+  // Saat chain menyala, budget & batas ambil diambil dari KONTRAK, bukan
+  // dari body (temuan audit S-20): nilai on-chain sudah dibaca di atas, dan
+  // body bisa berbeda — mis. klien yang salah hitung, atau permintaan yang
+  // dirangkai tangan. Body tetap divalidasi, jadi bentuk endpoint sama.
+  const budgetSaved = env.chainEnabled && onChain ? String(onChain.budget) : budgetWei;
+  const deadlineSaved = env.chainEnabled && onChain
+    ? new Date(Number(onChain.acceptDeadline) * 1000).toISOString()
+    : acceptDeadline;
   const { error } = await db().from('jobs').insert({
     job_id: jobId,
     client_addr: clientAddr,
@@ -156,8 +165,8 @@ export const POST = handler(async (req: NextRequest) => {
     target_count: targetCount,
     multi_engine: multiEngine,
     query_pool_hash: computed,
-    budget_wei: budgetWei,
-    accept_deadline: acceptDeadline,
+    budget_wei: budgetSaved,
+    accept_deadline: deadlineSaved,
     status: 'Open',
     job_state: 'queued_baseline',
   });

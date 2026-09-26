@@ -410,12 +410,30 @@ export const openApiSpec = {
       get: {
         tags: ['Oracle'],
         summary: 'Verdict + audit yang bisa diverifikasi ulang',
-        description:
+        description: [
           'Mengembalikan string kanonik supaya pihak luar bisa menghitung keccak256-nya sendiri dan mencocokkannya dengan yang tercatat on-chain.',
+          '',
+          'Dua versi verdict (bentuk respons endpoint tidak berubah):',
+          '- `GEOv1` — subset = undian dari `seed` on-chain. Verdict sebelum 27-09-2026 & mode pengembangan.',
+          '- `GEOv2` — tambahan `confirmTx`, `confirmBlockHash`, `deliverableHash`. Subset = undian dari',
+          '  keccak256(seed ‖ confirmBlockHash ‖ uint256(jobId) ‖ deliverableHash). Seed on-chain di BSC praktis',
+          '  konstan, jadi v1 bisa ditebak sebelum verifikasi. Periksa sendiri: `confirmTx` harus',
+          '  `confirmStructural(jobId)` ke kontrak ini, sukses, di blok `confirmBlockHash`.',
+          'String kanonik v2 = 12 baris v1 + tiga baris itu (heksa huruf kecil).',
+        ].join('\n'),
         parameters: [paramJobId],
         responses: {
           200: sukses('Verdict', {
-            verdict: { type: 'object' },
+            verdict: {
+              type: 'object',
+              description: 'GEOv1 atau GEOv2 — lihat deskripsi endpoint.',
+              properties: {
+                v: { type: 'string', enum: ['GEOv1', 'GEOv2'] },
+                confirmTx: { type: 'string', description: 'Hanya GEOv2' },
+                confirmBlockHash: { type: 'string', description: 'Hanya GEOv2' },
+                deliverableHash: { type: 'string', description: 'Hanya GEOv2' },
+              },
+            },
             canonical: { type: 'string' },
             audit: {
               type: 'object',

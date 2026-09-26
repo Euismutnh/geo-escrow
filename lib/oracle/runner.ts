@@ -1,4 +1,6 @@
 import { db } from '../db';
+import { env } from '../env';
+import { MIN_BUDGET_WEI } from '../job-input';
 import { getJob, acquireLock, releaseLock } from '../jobs-repo';
 import { ApiError, internalError, publicErrorMessage } from '../http';
 import { provider, enginesFor, textHitsBrand } from './index';
@@ -128,6 +130,9 @@ export async function runPhase(
     }
   }
 
+  // S-09 (Fase 10): biaya AI sungguhan dibatasi SEBELUM memanggil. Mock gratis.
+  if (tasks.length > 0 && p.id !== 'mock') await assertAiBudget(job, tasks.length);
+
   await mapWithLimit(tasks, CONCURRENCY, async (task) => {
     const engine = engines.find((e) => e.id === task.engineId)!;
 
@@ -192,6 +197,43 @@ export async function runPhase(
   }
 
   return perQuery;
+}
+
+/**
+ * Penjaga biaya AI sungguhan (temuan audit S-09):
+ *   1. budget kontrak ≥ MIN_BUDGET_WEI — kontrak 1 wei (dibuat di luar
+ *      aplikasi) tidak boleh memicu 12 panggilan AI;
+ *   2. kuota 24 jam GLOBAL dan PER CLIENT, dihitung dari oracle_runs —
+ *      berlaku lintas instance, berbeda dari rate limit di memori.
+ * Hitungannya sedikit longgar (dua proses bisa lolos bersamaan) — cukup
+ * untuk membatasi pengurasan; bukan akuntansi tagihan.
+ */
+async function assertAiBudget(job: Job, planned: number): Promise<void> {
+  if (BigInt(job.budget_wei) < MIN_BUDGET_WEI) {
+    throw new ApiError('WRONG_STATUS', 'Budget kontrak di bawah minimum 0,0005 tBNB — tidak diukur dengan AI sungguhan.');
+  }
+  const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+
+  const { count: global, error: gErr } = await db()
+    .from('oracle_runs')
+    .select('id', { count: 'exact', head: true })
+    .gte('created_at', since)
+    .not('model', 'like', 'mock%');
+  if (gErr) throw internalError('menghitung kuota AI', gErr);
+  if ((global ?? 0) + planned > env.oracleDailyCallLimit) {
+    throw new ApiError('RATE_LIMITED', 'Kuota panggilan AI harian platform tercapai — coba lagi nanti.');
+  }
+
+  const { count: mine, error: cErr } = await db()
+    .from('oracle_runs')
+    .select('id, jobs!inner(client_addr)', { count: 'exact', head: true })
+    .gte('created_at', since)
+    .not('model', 'like', 'mock%')
+    .eq('jobs.client_addr', job.client_addr.toLowerCase());
+  if (cErr) throw internalError('menghitung kuota AI client', cErr);
+  if ((mine ?? 0) + planned > env.oracleClientDailyCallLimit) {
+    throw new ApiError('RATE_LIMITED', 'Kuota panggilan AI harian untuk client ini tercapai — coba lagi nanti.');
+  }
 }
 
 export interface BaselineResult {

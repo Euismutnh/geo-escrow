@@ -150,3 +150,31 @@ export const LIVE_UI_STATUSES = ['baseline_running', 'submitted_pending', 'verif
 export function isLive(job: UiStatusInput & Pick<Job, 'job_state_at'>, now: number): boolean {
   return (LIVE_UI_STATUSES as readonly UiStatus[]).includes(deriveUiStatus(job)) && !isStaleLock(job, now);
 }
+
+/** Jeda polling: status hidup (Oracle bekerja) vs menunggu aksi pihak lain. */
+export const POLL_FAST_MS = 4_000;
+export const POLL_SLOW_MS = 30_000;
+
+const FINAL_STATUSES: readonly JobStatus[] = ['ReleasedFull', 'Refunded'];
+
+/**
+ * Jeda polling untuk sekumpulan job yang sedang tampil (Fase 9).
+ *
+ *   POLL_FAST_MS  ada yang hidup (Oracle sedang bekerja, lock tidak macet)
+ *   POLL_SLOW_MS  ada yang belum selesai — berubah lewat transaksi PIHAK LAIN
+ *                 (freelancer mengambil, client memverifikasi, arbiter
+ *                 memutus). TxButton pihak itu menyinkronkan DB; halaman
+ *                 ini tinggal bertanya sesekali.
+ *   false         semua sudah selesai — nol permintaan berulang
+ *
+ * Tab tersembunyi tidak ikut dihitung di sini: refetchIntervalInBackground
+ * bawaan react-query = false, jadi polling berhenti sendiri.
+ */
+export function pollIntervalFor(
+  jobs: readonly (UiStatusInput & Pick<Job, 'job_state_at'>)[],
+  now: number
+): number | false {
+  if (jobs.some((j) => isLive(j, now))) return POLL_FAST_MS;
+  if (jobs.some((j) => !FINAL_STATUSES.includes(j.status))) return POLL_SLOW_MS;
+  return false;
+}
