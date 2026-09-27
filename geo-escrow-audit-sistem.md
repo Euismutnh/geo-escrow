@@ -155,7 +155,7 @@ Kolom **Lapisan**: `Kontrak` = butuh deploy ulang · `BE` / `FE` = bisa diperbai
 **S-10 — Tidak ada penggerak otomatis untuk confirmStructural & pemulihan** · BE + Ops · (BE-06, WF-17)
 - `confirmStructural` hanya dipicu `after()` di `/api/sync` (`app/api/sync/[id]/route.ts:68-77`); cron tidak menyapu job `Submitted`. Komentar `lib/flows/structural.ts:36` ("dipanggil indexer") keliru.
 - Freelancer menutup tab sebelum sync → `Submitted` selamanya.
-- `vercel.json` `*/5` kemungkinan ditolak plan Hobby *(DIDUGA)*.
+- `vercel.json` `*/5` kemungkinan ditolak plan Hobby *(DIDUGA)* — ✅ **selesai 27-09**: keputusan tim = Hobby, jadwal diubah ke sekali sehari (03:00 UTC). Lihat `geo-escrow-deploy-checklist.md` §4.
 - **Perbaikan:** di poll, sapu `Submitted && job_state in (idle,error)` → confirm (batas N/putaran); GitHub Actions atau loop lokal saat demo.
 
 **S-11 — `settled_by` & `deliverable_submitted_at` tidak pernah ditulis** · BE · (BE-08, WF-09)

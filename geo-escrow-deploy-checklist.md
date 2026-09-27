@@ -43,12 +43,19 @@ Setelah mengubah `NEXT_PUBLIC_RPC_URL`, **deploy ulang** (nilainya dibaca saat b
 
 ## 4. Cron (jaring pengaman)
 
-`vercel.json` menjadwalkan `GET /api/indexer/poll` tiap 5 menit. Sistem **tidak bergantung** padanya —
-status job disinkronkan langsung setelah setiap transaksi — cron hanya menangkap transaksi dari luar
-aplikasi, melepas lock macet, dan menyapu job yang tertinggal di `Submitted`.
+`vercel.json` menjadwalkan `GET /api/indexer/poll` **sekali sehari, 03:00 UTC** — disesuaikan untuk
+**plan Hobby** (keputusan tim, 27-09-2026), yang membatasi cron hanya boleh berjalan sekali per hari.
 
-- **Plan Hobby:** Vercel membatasi cron ke sekali sehari — jadwal `*/5` bisa ditolak saat deploy. Ganti ke harian, atau pakai penjadwal luar (GitHub Actions) yang memanggil poll dengan header `Authorization: Bearer <CRON_SECRET>`.
-- **Plan Pro:** `*/5` boleh dipertahankan.
+Sistem **tidak bergantung** pada cron ini untuk kebenaran — status job disinkronkan langsung setelah
+setiap transaksi (`POST /api/sync/:id`, dipanggil otomatis oleh `<TxButton>`). Yang ditangkap cron
+hanya jaring pengaman: transaksi dari luar aplikasi (Etherscan, wallet lain), lock yang macet karena
+proses terpotong, dan job yang tertinggal di `Submitted`. Sekali sehari cukup untuk itu.
+
+Kalau nanti pindah ke **plan Pro**, jadwal boleh dipercepat (mis. `*/5 * * * *`) untuk ledger Aktivitas
+yang lebih segar — bukan keharusan.
+
+**Sebelum demo:** jalankan poll manual sekali lewat curl (langkah §5.3) supaya ledger tidak menunggu
+sampai jadwal berikutnya.
 
 ## 5. Setelah deploy
 
